@@ -1,9 +1,10 @@
 # RM-Media-Decryptor
 > A GUI decryption tool for RPG Maker (MV/MZ) media files.
 
-**Download(https://github.com/apdlvmfqjqtk/RM-Media-Decryptor/releases/)**
+**[Program Download (releases)](https://github.com/apdlvmfqjqtk/RM-Media-Decryptor/releases/)**
 
 흔히 쯔꾸르 게임이라 불리는 RPG Maker (MV/MZ) 게임의 암호화된 미디어 리소스(오디오, 이미지)를 손쉽게 복호화해 주는 GUI 기반 프로그램입니다.
+
 <img width="743" height="1178" alt="스크린샷 2026-05-04 212241" src="https://github.com/user-attachments/assets/4ee4585e-5b2e-4c6e-a4e2-e9596b6e6e14" />
 
 ## 기능
