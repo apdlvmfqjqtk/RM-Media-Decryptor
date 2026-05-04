@@ -1,12 +1,14 @@
 # RM-Media-Decryptor
 > A GUI decryption tool for RPG Maker (MV/MZ) media files.
 
+![Screenshot](이미지링크)
+
 흔히 쯔꾸르 게임이라 불리는 RPG Maker (MV/MZ) 게임의 암호화된 미디어 리소스(오디오, 이미지)를 손쉽게 복호화해 주는 GUI 기반 프로그램입니다.
 
 ## 기능
-- 자동 키 추출: 게임 폴더를 지정하면 `system.json` 파일을 분석하여 암호화 키를 메모리에 자동 로드합니다.
-- 선택적 복호화: 오디오 파일, 이미지 파일 또는 둘 다 선택하여 복호화할 수 있습니다.
-- 직관적인 UI: 해독 과정과 결과가 실시간으로 로그창에 출력됩니다.
+- **자동 키 추출:** 게임 폴더를 지정하면 `system.json` 파일을 분석하여 암호화 키를 메모리에 자동 로드합니다.
+- **선택적 복호화:** 오디오 파일, 이미지 파일 또는 둘 다 선택하여 복호화할 수 있습니다.
+- **직관적인 UI:** 해독 과정과 결과가 실시간으로 로그창에 출력됩니다.
 
 ## 사용법
 1. 저장소(Releases 등)에서 `RM-Media-Decryptor.exe` 실행 파일을 다운로드하여 실행합니다. (별도의 설치 필요 없음)
@@ -22,18 +24,19 @@
 이 프로그램은 기술적인 학습 및 본인이 정당하게 소유한 파일의 개인적인 백업/수정 목적으로만 사용해야 합니다. 추출한 리소스를 무단으로 배포하거나 상업적으로 이용하는 등 타인의 저작권을 침해하는 행위에 대해 개발자는 어떠한 법적 책임도 지지 않습니다.
 
 ## Credits
-**Font:** 본 프로그램의 UI는 [Pretendard](https://cactus.tistory.com/306) 폰트를 사용하였습니다.
+- **Font:** 본 프로그램의 UI는 [Pretendard](https://cactus.tistory.com/306) 폰트를 사용하였습니다.
+
 ---
 
-# RM-Media-Decryptor
+# RM-Media-Decryptor (English)
 > A GUI decryption tool for RPG Maker (MV/MZ) media files.
 
 A GUI-based program that easily decrypts encrypted media resources (audio, images) from RPG Maker (MV/MZ) games.
 
 ## Features
-- Automatic Key Extraction: Specify the game folder, and it will automatically analyze the `system.json` file to load the encryption key into memory.
-- Selective Decryption: You can choose to decrypt audio files, image files, or both.
-- Intuitive UI: The decryption process and results are displayed in the log window in real-time.
+- **Automatic Key Extraction:** Specify the game folder, and it will automatically analyze the `system.json` file to load the encryption key into memory.
+- **Selective Decryption:** You can choose to decrypt audio files, image files, or both.
+- **Intuitive UI:** The decryption process and results are displayed in the log window in real-time.
 
 ## Usage
 1. Download the `RM-Media-Decryptor.exe` executable from the repository (e.g., Releases) and run it. (No installation required)
@@ -50,17 +53,18 @@ This program is intended solely for educational purposes and for creating person
 
 ## Credits
 - **Font:** The UI of this program uses the [Pretendard](https://cactus.tistory.com/306) font.
+
 ---
 
-# RM-Media-Decryptor
+# RM-Media-Decryptor (日本語)
 > A GUI decryption tool for RPG Maker (MV/MZ) media files.
 
 RPGツクール (MV/MZ) 製ゲームの暗号化されたメディアリソース（音声、画像）を簡単に復号化するGUIベースのツールです。
 
 ## 機能
-- キーの自動抽出: ゲームフォルダを指定すると、`system.json`ファイルを解析し、暗号化キーを自動的にメモリに読み込みます。
-- 選択的な復号化: 音声ファイル、画像ファイル、またはその両方を選択して復号化できます。
-- 直感的なUI: 復号化の進行状況や結果がリアルタイムでログウィンドウに出力されます。
+- **キーの自動抽出:** ゲームフォルダを指定すると、`system.json`ファイルを解析し、暗号化キーを自動的にメモリに読み込みます。
+- **選択的な復号化:** 音声ファイル、画像ファイル、またはその両方を選択して復号化できます。
+- **直感的なUI:** 復号化の進行状況や結果がリアルタイムでログウィンドウに出力されます。
 
 ## 使い方
 1. リポジトリ（Releasesなど）から実行ファイル `RM-Media-Decryptor.exe` をダウンロードして実行します。（インストール不要）
@@ -78,4 +82,5 @@ RPGツクール (MV/MZ) 製ゲームの暗号化されたメディアリソー�
 ## クレジット (Credits)
 - **Font:** 本プログラムのUIには [Pretendard](https://cactus.tistory.com/306) フォントを使用しています。
 
+---
 *Developed with AI assistance.*
