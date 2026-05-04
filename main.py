@@ -282,8 +282,8 @@ class DecrypterApp:
 
         # Windows 11-style compact default size.
         # Smaller minimum allows the UI to shrink with the window more naturally.
-        self.root.geometry("880x760")
-        self.root.minsize(600, 520)
+        self.root.geometry("600x900")
+        self.root.minsize(400, 520)
         self.root.resizable(True, True)
 
         # State
