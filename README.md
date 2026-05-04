@@ -15,6 +15,9 @@
 4. '저장 폴더 선택' 버튼을 눌러 결과물이 저장될 경로를 지정합니다.
 5. '복호화 시작'을 누르고 로그 창의 진행 상황을 확인합니다.
 
+## 문제 해결 (Troubleshooting)
+- 프로그램 설정이 꼬이거나 완전한 초기화가 필요한 경우, 윈도우 탐색기 주소창에 `%APPDATA%\RPGDecrypter`를 입력하여 해당 폴더로 이동한 뒤, 내부의 설정 파일을 삭제하고 프로그램을 다시 실행해 주십시오.
+
 ## 면책 조항
 이 프로그램은 기술적인 학습 및 본인이 정당하게 소유한 파일의 개인적인 백업/수정 목적으로만 사용해야 합니다. 추출한 리소스를 무단으로 배포하거나 상업적으로 이용하는 등 타인의 저작권을 침해하는 행위에 대해 개발자는 어떠한 법적 책임도 지지 않습니다.
 
@@ -39,6 +42,9 @@ A GUI-based program that easily decrypts encrypted media resources (audio, image
 4. Click the 'Select Save Folder' button to specify the destination path for the decrypted files.
 5. Click 'Start Decryption' and monitor the progress in the log window.
 
+## Troubleshooting
+- If you experience configuration issues or need to reset the program settings, go to `%APPDATA%\RPGDecrypter` in the Windows File Explorer address bar, delete the settings file inside, and restart the program.
+
 ## Disclaimer
 This program is intended solely for educational purposes and for creating personal backups or modifications of files you legally own. The developer assumes no legal responsibility for any copyright infringement, including unauthorized distribution or commercial use of the extracted resources.
 
@@ -62,6 +68,9 @@ RPGツクール (MV/MZ) 製ゲームの暗号化されたメディアリソー�
 3. 復号化する対象（音声、画像）にチェックを入れます。
 4. 「保存フォルダ選択」 ボタンをクリックし、復号化されたファイルの保存先を指定します。
 5. 「復号化開始」 をクリックし、ログウィンドウで進行状況を確認します。
+
+## トラブルシューティング (Troubleshooting)
+- プログラムの設定に問題が発生したり、初期化が必要な場合は、エクスプローラのアドレスバーに `%APPDATA%\RPGDecrypter` を入力して該当フォルダへ移動し、内部の設定ファイルを削除してからプログラムを再起動してください。
 
 ## 免責事項 (Disclaimer)
 本プログラムは、技術的な学習、およびユーザー自身が正当に所有するファイルの個人的なバックアップや改変を目的としてのみ使用してください。抽出したリソースの無断配布や商用利用など、他者の著作権を侵害する行為について、開発者はいかなる法的責任も負いません。
