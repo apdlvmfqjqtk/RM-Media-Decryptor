@@ -299,8 +299,11 @@ class DecrypterApp:
         self.root.title("RPG Decrypter")
         self.set_window_icon()
 
-        self.root.geometry("600x940")
-        self.root.minsize(400, 560)
+        # Initial size is generous so the log area always shows several
+        # lines on first launch (HiDPI / 125-150 % scaling can squeeze the
+        # bottom panel surprisingly hard at smaller sizes).
+        self.root.geometry("640x1060")
+        self.root.minsize(500, 740)
         self.root.resizable(True, True)
 
         # Runtime state

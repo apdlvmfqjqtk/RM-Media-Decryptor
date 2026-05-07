@@ -28,9 +28,9 @@ TEXT = {
         "app_subtitle": "RPG Maker MV/MZ 암호화 미디어 에셋을 복호화 합니다",
 
         # sections
-        "settings_section": "00  설정",
-        "section_game":     "01  원본 게임 폴더",
-        "section_output":   "02  결과물 저장 폴더",
+        "settings_section": "ㅁ  설정",
+        "section_game":     "ㅁ  원본 게임 폴더",
+        "section_output":   "ㅁ  결과물 저장 폴더",
 
         # settings
         "appearance_label": "화면 모드",
@@ -151,9 +151,9 @@ TEXT = {
         "app_title":    "RPG Decrypter",
         "app_subtitle": "Decrypts RPG Maker MV/MZ encrypted media assets.",
 
-        "settings_section": "00  Settings",
-        "section_game":     "01  Source Game Folder",
-        "section_output":   "02  Output Folder",
+        "settings_section": "ㅁ  Settings",
+        "section_game":     "ㅁ  Source Game Folder",
+        "section_output":   "ㅁ  Output Folder",
 
         "appearance_label": "Appearance",
         "language_label":   "Language",
@@ -260,9 +260,9 @@ TEXT = {
         "app_title":    "RPG Decrypter",
         "app_subtitle": "RPG Maker MV/MZ で暗号化されたメディアアセットを復号します。",
 
-        "settings_section": "00  設定",
-        "section_game":     "01  元ゲームフォルダー",
-        "section_output":   "02  出力フォルダー",
+        "settings_section": "ㅁ  設定",
+        "section_game":     "ㅁ  元ゲームフォルダー",
+        "section_output":   "ㅁ  出力フォルダー",
 
         "appearance_label": "表示モード",
         "language_label":   "言語",
