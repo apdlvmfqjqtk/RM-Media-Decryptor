@@ -319,7 +319,7 @@ class DecrypterApp:
 
         # Apple-style fixed-size window — non-resizable so the carefully
         # tuned layout can't be deformed.  Controls : log = 2 : 1.
-        self.root.geometry("880x880")
+        self.root.geometry("880x800")
         self.root.resizable(False, False)
 
         # Runtime state
@@ -1489,7 +1489,7 @@ class DecrypterApp:
             ),
             "subtitle",
         )
-        self.widgets["app_subtitle"].grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        self.widgets["app_subtitle"].grid(row=1, column=0, sticky="ew", pady=(2, 0))
 
         # Quick-start guide — visible right under the subtitle so first-time
         # users see the 3-step flow without reading anywhere else.
@@ -1502,13 +1502,13 @@ class DecrypterApp:
             ),
             "note",
         )
-        self.widgets["quick_guide"].grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        self.widgets["quick_guide"].grid(row=2, column=0, sticky="ew", pady=(4, 0))
 
         # Divider (spans both columns)
         ctk.CTkFrame(
             self.root, height=1, fg_color=COLORS["border"], corner_radius=RADIUS_DIVIDER
         ).grid(row=1, column=0, columnspan=2, sticky="ew",
-               padx=PAD_X, pady=(8, 10))
+               padx=PAD_X, pady=(6, 6))
 
         # ── Left column: controls panel ──────────────────────────────
         controls = ctk.CTkFrame(self.root, fg_color="transparent")
@@ -1798,7 +1798,7 @@ class DecrypterApp:
         # Header row — same pady as section labels on the left so the
         # "LOG" baseline aligns with "설정".
         log_header = ctk.CTkFrame(log_panel, fg_color="transparent")
-        log_header.grid(row=0, column=0, sticky="ew", padx=4, pady=(10, 0))
+        log_header.grid(row=0, column=0, sticky="ew", padx=4, pady=(6, 0))
         log_header.grid_columnconfigure(0, weight=1)
 
         self.widgets["log_header"] = self._register_font(
@@ -1870,7 +1870,7 @@ class DecrypterApp:
             anchor="w",
         )
         self._register_font(label, "section")
-        label.grid(row=row, column=0, sticky="ew", padx=4, pady=(10, 0))
+        label.grid(row=row, column=0, sticky="ew", padx=4, pady=(6, 0))
         self.widgets[translation_key] = label
 
     def _card(self, *, parent, row: int) -> ctk.CTkFrame:
