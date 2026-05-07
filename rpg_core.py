@@ -1,14 +1,20 @@
 # -*- coding: utf-8 -*-
 """Core RPG Maker MV/MZ key detection, validation, and decryption logic.
 
-This module intentionally has no tkinter/customtkinter dependency.
-It returns status codes so the GUI can translate and display messages.
+This module has no tkinter/customtkinter dependency by design.
+All functions return plain status codes so the GUI layer can translate
+and display messages in the appropriate language.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import time
+
+# ---------------------------------------------------------------------------
+# Extension maps
+# ---------------------------------------------------------------------------
 
 # Encrypted-extension -> output-extension mapping.
 EXT_MAP = {
@@ -33,33 +39,40 @@ TARGET_MODE_EXTS = {
 
 
 def get_target_extensions(target_mode: str) -> set[str]:
-    """Return encrypted extensions enabled by the selected target mode."""
+    """Return the set of encrypted extensions enabled by *target_mode*."""
     return set(TARGET_MODE_EXTS.get(target_mode, TARGET_MODE_EXTS["both"]))
 
-# Extensions we recognise but cannot handle (RPG Maker VX/Ace archives etc.).
-KNOWN_UNSUPPORTED_EXT = {
-    ".rgss3a": "rgss3a",
-    ".rgss2a": "rgss2a",
-    ".rgssad": "rgssad",
-}
 
-# Normal, unencrypted media extensions.
+# Extensions that are recognised but cannot be handled
+# (RPG Maker VX / Ace archive formats, etc.).
+KNOWN_UNSUPPORTED_EXT: set[str] = {".rgss3a", ".rgss2a", ".rgssad"}
+
+# Normal, unencrypted media extensions that may appear alongside encrypted files.
 PLAIN_MEDIA_EXT = {
     ".png": "PNG",
     ".ogg": "OGG",
     ".m4a": "M4A",
 }
 
-PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-OGG_SIGNATURE = b"OggS"
+# ---------------------------------------------------------------------------
+# Magic bytes
+# ---------------------------------------------------------------------------
+PNG_SIGNATURE      = b"\x89PNG\r\n\x1a\n"
+OGG_SIGNATURE      = b"OggS"
 RPGMV_HEADER_MAGIC = b"RPGMV"
 
 
+# ---------------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------------
+
 def is_m4a_signature(data: bytes) -> bool:
+    """Return True if *data* starts with an M4A/MP4 'ftyp' box."""
     return len(data) >= 12 and data[4:8] == b"ftyp"
 
 
 def mask_key(key: str) -> str:
+    """Return a partially masked representation of *key* for safe logging."""
     key = key.strip()
     if len(key) <= 10:
         return "*" * len(key)
@@ -67,6 +80,7 @@ def mask_key(key: str) -> str:
 
 
 def get_system_json_candidates(selected_dir: str) -> list[str]:
+    """Return candidate System.json paths relative to *selected_dir*."""
     parent_dir = os.path.dirname(os.path.abspath(selected_dir))
     return [
         os.path.join(selected_dir, "System.json"),
@@ -78,14 +92,13 @@ def get_system_json_candidates(selected_dir: str) -> list[str]:
 
 
 def extract_key_from_system_json(selected_dir: str):
-    """
-    Walk every candidate System.json path.
+    """Walk every candidate System.json path and attempt to extract the key.
 
     Returns:
-        (key_or_none, attempts)
+        (key_or_None, attempts)
 
-    attempts is a list of:
-        (path, status_code, extra_info)
+    *attempts* is a list of ``(path, status_code, extra_info)`` tuples that
+    the GUI uses to display a per-path status log.
     """
     attempts: list[tuple[str, str, object]] = []
 
@@ -127,7 +140,12 @@ def extract_key_from_system_json(selected_dir: str):
     return None, attempts
 
 
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+
 def validate_key(key: str) -> tuple[bool, str]:
+    """Return ``(True, "")`` when *key* is a valid 32-character hex string."""
     key = key.strip()
     if not key:
         return False, "key_empty"
@@ -141,6 +159,7 @@ def validate_key(key: str) -> tuple[bool, str]:
 
 
 def validate_paths(input_dir: str, output_dir: str) -> tuple[bool, str]:
+    """Validate input/output directories and create *output_dir* if needed."""
     if not os.path.isdir(input_dir):
         return False, "invalid_input_dir"
 
@@ -152,46 +171,65 @@ def validate_paths(input_dir: str, output_dir: str) -> tuple[bool, str]:
     if not os.path.isdir(output_dir):
         return False, "invalid_output_dir"
 
-    input_abs = os.path.normcase(os.path.realpath(input_dir))
+    input_abs  = os.path.normcase(os.path.realpath(input_dir))
     output_abs = os.path.normcase(os.path.realpath(output_dir))
 
     if input_abs == output_abs:
         return False, "same_dir"
 
     try:
-        common_path = os.path.commonpath([input_abs, output_abs])
-        if common_path == input_abs:
+        if os.path.commonpath([input_abs, output_abs]) == input_abs:
             return False, "output_inside_input"
     except ValueError:
-        # Different drives — that's fine.
+        # Paths are on different drives — that is fine.
         pass
 
     return True, ""
 
 
+# ---------------------------------------------------------------------------
+# Output path utilities
+# ---------------------------------------------------------------------------
+
 def unique_output_path(path: str) -> str:
+    """Return *path* if it does not exist, otherwise append an incrementing
+    numeric suffix until a free path is found.
+
+    Tries up to 9 999 numeric suffixes; falls back to a Unix-timestamp suffix
+    to guarantee uniqueness without an unbounded loop.
+    """
     if not os.path.exists(path):
         return path
+
     base, ext = os.path.splitext(path)
-    idx = 1
-    while True:
+    for idx in range(1, 10_000):
         candidate = f"{base}_{idx}{ext}"
         if not os.path.exists(candidate):
             return candidate
-        idx += 1
 
+    # Extreme fallback: use the current timestamp (microsecond resolution).
+    return f"{base}_{int(time.time() * 1_000_000)}{ext}"
+
+
+# ---------------------------------------------------------------------------
+# Decryption
+# ---------------------------------------------------------------------------
 
 def classify_input_header(header_data: bytes) -> str:
-    """
-    Return one of:
-        ok, too_small, already_png, already_ogg, already_m4a, not_encrypted
+    """Classify the first 32 bytes of a file.
+
+    Returns one of:
+        ``"ok"``           – valid RPGMV header, ready to decrypt
+        ``"too_small"``    – file is smaller than 32 bytes
+        ``"already_png"``  – file is already a plain PNG
+        ``"already_ogg"``  – file is already a plain OGG
+        ``"already_m4a"``  – file is already a plain M4A
+        ``"not_encrypted"``– no recognised header
     """
     if len(header_data) < 32:
         return "too_small"
-
     if header_data.startswith(RPGMV_HEADER_MAGIC):
         return "ok"
-
     if header_data.startswith(PNG_SIGNATURE):
         return "already_png"
     if header_data.startswith(OGG_SIGNATURE):
@@ -201,34 +239,40 @@ def classify_input_header(header_data: bytes) -> str:
     return "not_encrypted"
 
 
-def decrypt_asset(input_path: str, output_path: str, key_hex: str):
-    """
-    Decrypt a single encrypted RPG Maker asset.
+def decrypt_asset(input_path: str, output_path: str, key_bytes: bytes):
+    """Decrypt a single encrypted RPG Maker asset.
 
     Algorithm:
-        1. Skip the first 16-byte RPGMV header.
-        2. XOR the next 16 bytes with the first 16 bytes of the key.
-        3. Append the rest of the file unchanged.
+        1. Skip the 16-byte RPGMV header.
+        2. XOR the next 16 bytes with the first 16 bytes of *key_bytes*.
+        3. Append the remainder of the file unchanged.
+
+    Args:
+        input_path:  Path to the encrypted source file.
+        output_path: Destination path for the decrypted file.
+        key_bytes:   Pre-parsed key bytes. Accepting ``bytes`` instead of a
+                     hex string avoids redundant conversion for every file in
+                     a batch operation.
 
     Returns:
-        (True, "") on success
-        (False, status_code_or_tuple) on skip/failure
+        ``(True, "")`` on success.
+        ``(False, status_code_or_tuple)`` on skip or failure.
     """
     tmp_path = output_path + ".tmp"
 
     try:
-        key = bytearray.fromhex(key_hex)
-
         with open(input_path, "rb") as fin:
-            header_data = fin.read(32)
+            header_data    = fin.read(32)
             classification = classify_input_header(header_data)
             if classification != "ok":
                 return False, classification
 
+            # XOR the 16 encrypted bytes with the key.
             header = bytearray(header_data[16:32])
             for idx in range(16):
-                header[idx] ^= key[idx % 16]
+                header[idx] ^= key_bytes[idx % 16]
 
+            # Verify the decrypted header matches the expected file signature.
             header_bytes = bytes(header)
             output_lower = output_path.lower()
             if output_lower.endswith(".png") and not header_bytes.startswith(PNG_SIGNATURE):
@@ -238,6 +282,8 @@ def decrypt_asset(input_path: str, output_path: str, key_hex: str):
             if output_lower.endswith(".m4a") and not is_m4a_signature(header_bytes):
                 return False, "bad_m4a"
 
+            # Write decrypted header + remaining file data to a temp file,
+            # then atomically replace the destination.
             with open(tmp_path, "wb") as fout:
                 fout.write(header)
                 while True:
@@ -250,14 +296,15 @@ def decrypt_asset(input_path: str, output_path: str, key_hex: str):
         return True, ""
 
     except OSError as e:
-        cleanup_tmp(tmp_path)
+        _cleanup_tmp(tmp_path)
         return False, ("io_error", str(e))
     except Exception as e:
-        cleanup_tmp(tmp_path)
+        _cleanup_tmp(tmp_path)
         return False, ("raw_error", str(e) or "unknown_error")
 
 
-def cleanup_tmp(tmp_path: str) -> None:
+def _cleanup_tmp(tmp_path: str) -> None:
+    """Remove *tmp_path* if it exists, ignoring any errors."""
     try:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)

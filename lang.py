@@ -2,7 +2,7 @@
 """Language options and translation table for RPG Decrypter."""
 
 # =====================================================================
-# 8. Languages
+# 8. Language options
 # =====================================================================
 LANGUAGE_OPTIONS = {
     "ko": "한국어",
@@ -13,12 +13,12 @@ LANGUAGE_CODES_BY_LABEL = {label: code for code, label in LANGUAGE_OPTIONS.items
 
 
 # =====================================================================
-# 9. Translation table
+# 9. Translation strings
 #
-#    Terminology
-#      KO: 복호화 (decryption / decrypt)
-#      EN: decryption / decrypt
-#      JA: 復号 (no 化 — modern usage)
+#    Terminology notes
+#      KO: uses "복호화"  (decryption / decrypt)
+#      EN: uses "decryption / decrypt"
+#      JA: uses "復号"   (no -化 suffix — modern standard usage)
 # =====================================================================
 TEXT = {
     "ko": {

@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Config loading/saving for RPG Decrypter.
+"""Config loading and saving for RPG Decrypter.
 
-Security note:
-    The decryption key is never saved here.
-    The source game folder is also not saved.
-    Only non-sensitive UI preferences are saved.
+Security policy:
+    The decryption key is never persisted here.
+    The source game folder (input_dir) is never saved to disk.
+    Only non-sensitive UI preferences are written to the config file.
     Legacy keys found in older config files are removed automatically.
 """
 
@@ -13,12 +13,21 @@ from __future__ import annotations
 import json
 import os
 
-VALID_LANGUAGES = {"ko", "en", "ja"}
-VALID_APPEARANCES = {"dark", "light"}
+VALID_LANGUAGES    = {"ko", "en", "ja"}
+VALID_APPEARANCES  = {"dark", "light"}
 VALID_TARGET_MODES = {"both", "image", "audio"}
 
 
-def get_config_file() -> str:
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _config_path() -> str:
+    """Return the absolute path to the config file.
+
+    The application directory is created on demand so that importing this
+    module never triggers file-system side effects.
+    """
     base_dir = os.getenv("APPDATA") or os.path.join(
         os.path.expanduser("~"), "AppData", "Roaming"
     )
@@ -27,51 +36,58 @@ def get_config_file() -> str:
     return os.path.join(app_dir, "config.json")
 
 
-CONFIG_FILE = get_config_file()
+def _sanitize(data: dict) -> dict:
+    """Return a dict containing only the allowed, non-sensitive settings.
 
-
-def sanitize_config(data: dict) -> dict:
-    """Keep only non-sensitive settings."""
-    language = data.get("language", "ko")
-    appearance = data.get("appearance", "dark")
+    input_dir is intentionally excluded — the source game folder is
+    never written to disk.
+    """
+    language    = data.get("language", "ko")
+    appearance  = data.get("appearance", "dark")
     target_mode = data.get("target_mode", "both")
 
     return {
-        # 원본 게임 폴더는 저장하지 않음
-        "input_dir": "",
-        # 결과물 저장 폴더만 저장
-        "output_dir": data.get("output_dir", "") or "",
-        "language": language if language in VALID_LANGUAGES else "ko",
-        "appearance": appearance if appearance in VALID_APPEARANCES else "dark",
-        "target_mode": target_mode if target_mode in VALID_TARGET_MODES else "both",
+        "output_dir":   data.get("output_dir", "") or "",
+        "language":     language    if language    in VALID_LANGUAGES    else "ko",
+        "appearance":   appearance  if appearance  in VALID_APPEARANCES  else "dark",
+        "target_mode":  target_mode if target_mode in VALID_TARGET_MODES else "both",
     }
 
 
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 def load_config_data() -> tuple[dict, Exception | None]:
-    """Return (config_data, error). Missing config is not an error."""
-    if not os.path.exists(CONFIG_FILE):
-        return sanitize_config({}), None
+    """Load the config file and return ``(config_data, error)``.
+
+    A missing config file is not treated as an error — a default dict is
+    returned instead.
+    """
+    config_file = _config_path()
+
+    if not os.path.exists(config_file):
+        return _sanitize({}), None
 
     try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        with open(config_file, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
-        return sanitize_config({}), e
+        return _sanitize({}), e
 
-    # Security hygiene: purge any legacy stored key.
-    if "decryption_key" in data or "encryption_key" in data or "key" in data:
-        data.pop("decryption_key", None)
-        data.pop("encryption_key", None)
-        data.pop("key", None)
+    # Security hygiene: purge any legacy stored key fields.
+    legacy_keys = ("decryption_key", "encryption_key", "key")
+    if any(k in data for k in legacy_keys):
+        for k in legacy_keys:
+            data.pop(k, None)
         try:
-            save_config_data(**sanitize_config(data))
+            save_config_data(**_sanitize(data))
         except Exception:
             pass
 
-    # input_dir가 예전 config에 남아 있어도 여기서 무조건 빈 값으로 정리됨
-    sanitized = sanitize_config(data)
+    sanitized = _sanitize(data)
 
-    # 기존 config.json에 남아 있던 input_dir도 파일에서 제거되도록 한 번 다시 저장
+    # Re-save to remove stale fields (e.g. a previously stored input_dir).
     try:
         save_config_data(**sanitized)
     except Exception:
@@ -81,30 +97,27 @@ def load_config_data() -> tuple[dict, Exception | None]:
 
 
 def save_config_data(
-    input_dir: str = "",
-    output_dir: str = "",
-    language: str = "ko",
-    appearance: str = "dark",
-    target_mode: str = "both",
+    output_dir:   str = "",
+    language:     str = "ko",
+    appearance:   str = "dark",
+    target_mode:  str = "both",
 ) -> tuple[bool, Exception | None]:
-    """Save only non-sensitive UI settings.
+    """Persist only non-sensitive UI settings.
 
-    The decryption key is intentionally excluded.
-    The source game folder(input_dir) is intentionally not saved.
+    The decryption key and source game folder are intentionally excluded
+    from the saved payload.
     """
-    payload = sanitize_config(
+    payload = _sanitize(
         {
-            # input_dir는 넘겨받아도 sanitize_config에서 빈 값으로 처리됨
-            "input_dir": input_dir,
-            "output_dir": output_dir,
-            "language": language,
-            "appearance": appearance,
+            "output_dir":  output_dir,
+            "language":    language,
+            "appearance":  appearance,
             "target_mode": target_mode,
         }
     )
 
     try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        with open(_config_path(), "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=4)
         return True, None
     except Exception as e:

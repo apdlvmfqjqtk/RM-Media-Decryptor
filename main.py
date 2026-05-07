@@ -15,6 +15,7 @@ Designed for PyInstaller --onedir --windowed packaging.
 """
 
 import os
+import pathlib
 import sys
 import threading
 import ctypes
@@ -424,7 +425,6 @@ class DecrypterApp:
 
     def save_config(self) -> bool:
         ok, error = save_config_data(
-            input_dir=self.input_dir_var.get(),
             output_dir=self.output_dir_var.get(),
             language=self.current_lang,
             appearance=self.current_appearance,
@@ -692,19 +692,33 @@ class DecrypterApp:
             failed_files: list[tuple[str, str]] = []
             last_logged_bucket = 0
 
+            # Parse the hex key once; pass raw bytes to avoid per-file conversion.
+            key_bytes = bytes.fromhex(key)
+
+            # Resolve the game name once — it is constant for the entire batch.
+            # If the input folder is named "www", the real game name is one level up.
+            _base_folder = os.path.basename(input_dir)
+            game_name = (
+                os.path.basename(os.path.dirname(input_dir))
+                if _base_folder == "www"
+                else _base_folder
+            )
+
             for root_dir, filename, ext in target_files:
                 input_path = os.path.join(root_dir, filename)
                 relative_dir = os.path.relpath(root_dir, input_dir)
-                # 1. 파일 경로에서 가장 끝에 있는 폴더 이름을 가져옵니다.
-                base_folder = os.path.basename(input_dir)
 
-                # 2. 만약 끝 폴더 이름이 'www'라면 진짜 게임 이름은 그 상위 폴더에 있으니 한 단계 위로 올라가서 가져옵니다.
-                game_name = os.path.basename(os.path.dirname(input_dir)) if base_folder == "www" else base_folder
+                # Prefix exact "img" / "audio" path components with the game name.
+                # pathlib.PurePath splits on the OS separator so only whole folder
+                # names are matched — substrings inside other names are left intact
+                # (e.g. "imagine", "audiobgm" are not affected).
+                parts = pathlib.PurePath(relative_dir).parts
+                new_parts = tuple(
+                    f"{game_name}-{p}" if p in ("img", "audio") else p
+                    for p in parts
+                )
+                new_relative_dir = os.path.join(*new_parts) if new_parts else relative_dir
 
-                # 3. 기존의 'img'나 'audio' 이름표 앞에 '게임명-'을 새롭게 붙여줍니다.
-                new_relative_dir = relative_dir.replace("img", f"{game_name}-img").replace("audio", f"{game_name}-audio")
-
-                # 4. 최종적으로 짐을 저장할 새로운 방(폴더) 위치를 확정합니다.
                 target_dir = os.path.join(output_dir, new_relative_dir)
                 os.makedirs(target_dir, exist_ok=True)
 
@@ -712,7 +726,7 @@ class DecrypterApp:
                 desired_output = os.path.join(target_dir, stem + EXT_MAP[ext])
                 output_path = unique_output_path(desired_output)
 
-                ok, reason = decrypt_asset(input_path, output_path, key)
+                ok, reason = decrypt_asset(input_path, output_path, key_bytes)
 
                 self.processed_files += 1
 
