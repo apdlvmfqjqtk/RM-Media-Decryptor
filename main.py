@@ -261,11 +261,11 @@ NOTIFY_DELAY_MS        = 0                  # delay before completion popup
 CLOSE_POLL_INTERVAL_MS = 100                # interval for waiting on cancel-then-close
 PROGRESS_LOG_BUCKET    = 5                  # log every N % progress
 
-# Fixed widths for buttons that hold translated text — locks the layout to
-# the Korean baseline so EN/JA can't shift columns.
+# Fixed widths for buttons that hold translated text — locks the layout
+# to the Korean baseline so EN/JA can't shift columns.  The three folder/
+# show buttons share a common width for visual consistency.
 BTN_W_FIND_FOLDER  = 130   # "게임 폴더 찾기" / "Find Game Folder" / "ゲームフォルダーを開く"
-BTN_W_OPEN_OUTPUT  = 80    # "열기"
-BTN_W_KEY_TOGGLE   = 90    # "표시" / "숨기기"
+BTN_W_KEY_TOGGLE   = 130   # "표시" / "숨기기" — same as folder buttons for symmetry
 BTN_W_LOG_CTRL     = 80    # "복사" / "지우기"
 BTN_H_LOG_CTRL     = 24
 
@@ -317,11 +317,10 @@ class DecrypterApp:
         self.root.title("RPG Decrypter")
         self.set_window_icon()
 
-        # Compact Apple-style layout: controls column locked to a Korean-
-        # baseline width so EN/JA can't shift the layout, log column flexes.
-        self.root.geometry("880x680")
-        self.root.minsize(820, 640)
-        self.root.resizable(True, True)
+        # Apple-style fixed-size window — non-resizable so the carefully
+        # tuned layout can't be deformed.  Controls : log = 2 : 1.
+        self.root.geometry("880x880")
+        self.root.resizable(False, False)
 
         # Runtime state
         self.current_lang        = "ko"
@@ -375,7 +374,6 @@ class DecrypterApp:
         if hasattr(self, "_controls_panel"):
             self._controls_panel.bind("<Configure>", self._on_controls_configure)
         self.key_var.trace_add("write", self._on_key_changed)
-        self.output_dir_var.trace_add("write", self._on_output_dir_changed)
 
         self._setup_keyboard_shortcuts()
         self._setup_key_context_menu()
@@ -385,7 +383,6 @@ class DecrypterApp:
 
         # Warm up reactive widgets.
         self._render_key_state()
-        self._on_output_dir_changed()
         self._configure_log_tags()
 
         if not (FONT_LOADER.has_pretendard or FONT_LOADER.has_pretendard_jp):
@@ -698,17 +695,6 @@ class DecrypterApp:
                 )
             except Exception:
                 pass
-
-    def _on_output_dir_changed(self, *_) -> None:
-        """Enable the 'Open output folder' button only when the folder exists."""
-        if not hasattr(self, "btn_open_output"):
-            return
-        folder = self.output_dir_var.get().strip()
-        state = "normal" if (folder and os.path.isdir(folder)) else "disabled"
-        try:
-            self.btn_open_output.configure(state=state)
-        except Exception:
-            pass
 
     def _set_status(self, key: str | None = None, **kwargs) -> None:
         """Update the status label by translation key.
@@ -1469,11 +1455,10 @@ class DecrypterApp:
     # ==================================================================
     def _build_ui(self) -> None:
         # ── Top-level grid: 2 columns (controls | log), 3 rows ───────
-        # Controls column is *locked* to a Korean-baseline width so changing
-        # language doesn't shift the layout.  Log column flexes with the
-        # window so the user can grow it for verbose runs.
-        self.root.grid_columnconfigure(0, weight=0, minsize=460)  # controls (LOCKED)
-        self.root.grid_columnconfigure(1, weight=1, minsize=300)  # log (flex)
+        # Fixed 2 : 1 ratio between the controls panel (wide) and the log
+        # panel (narrow).  Window is non-resizable so the ratio sticks.
+        self.root.grid_columnconfigure(0, weight=2)  # controls
+        self.root.grid_columnconfigure(1, weight=1)  # log
         self.root.grid_rowconfigure(0, weight=0)  # header
         self.root.grid_rowconfigure(1, weight=0)  # divider
         self.root.grid_rowconfigure(2, weight=1)  # main row
@@ -1728,22 +1713,6 @@ class DecrypterApp:
         )
         self._register_font(self.widgets["folder_button_output"], "button_sub")
         self.widgets["folder_button_output"].pack(side="right")
-
-        # "Open" button — disabled until output_dir is a valid folder.
-        self.btn_open_output = ctk.CTkButton(
-            row_out, text="",
-            state="disabled",
-            fg_color=COLORS["surface_alt"],
-            hover_color=COLORS["border"],
-            text_color=COLORS["text_primary"],
-            border_color=COLORS["border"], border_width=1,
-            corner_radius=RADIUS_CONTROL,
-            height=32, width=BTN_W_OPEN_OUTPUT,
-            command=self.open_output_folder,
-        )
-        self.widgets["open_output"] = self.btn_open_output
-        self._register_font(self.btn_open_output, "button_sub")
-        self.btn_open_output.pack(side="right", padx=(0, 6))
 
         self.entry_output = ctk.CTkEntry(
             row_out,

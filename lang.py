@@ -59,7 +59,6 @@ TEXT = {
         # buttons
         "folder_button_game":   "게임 폴더 찾기",
         "folder_button_output": "저장 위치 찾기",
-        "open_output":          "열기",
         "key_show":             "표시",
         "key_hide":             "숨기기",
         "run_button":           "복호화 시작",
@@ -190,7 +189,6 @@ TEXT = {
 
         "folder_button_game":   "Find Game Folder",
         "folder_button_output": "Find Output Folder",
-        "open_output":          "Open",
         "key_show":             "Show",
         "key_hide":             "Hide",
         "run_button":           "Start Decryption",
@@ -309,7 +307,6 @@ TEXT = {
 
         "folder_button_game":   "ゲームフォルダーを開く",
         "folder_button_output": "保存先を開く",
-        "open_output":          "開く",
         "key_show":             "表示",
         "key_hide":             "非表示",
         "run_button":           "復号開始",
