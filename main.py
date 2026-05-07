@@ -695,7 +695,17 @@ class DecrypterApp:
             for root_dir, filename, ext in target_files:
                 input_path = os.path.join(root_dir, filename)
                 relative_dir = os.path.relpath(root_dir, input_dir)
-                target_dir = os.path.join(output_dir, relative_dir)
+                # 1. 파일 경로에서 가장 끝에 있는 폴더 이름을 가져옵니다.
+                base_folder = os.path.basename(input_dir)
+
+                # 2. 만약 끝 폴더 이름이 'www'라면 진짜 게임 이름은 그 상위 폴더에 있으니 한 단계 위로 올라가서 가져옵니다.
+                game_name = os.path.basename(os.path.dirname(input_dir)) if base_folder == "www" else base_folder
+
+                # 3. 기존의 'img'나 'audio' 이름표 앞에 '게임명-'을 새롭게 붙여줍니다.
+                new_relative_dir = relative_dir.replace("img", f"{game_name}-img").replace("audio", f"{game_name}-audio")
+
+                # 4. 최종적으로 짐을 저장할 새로운 방(폴더) 위치를 확정합니다.
+                target_dir = os.path.join(output_dir, new_relative_dir)
                 os.makedirs(target_dir, exist_ok=True)
 
                 stem, _ = os.path.splitext(filename)
