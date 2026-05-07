@@ -196,12 +196,12 @@ FONT_LOADER.load()
 # 4. Centralized font role table
 # =====================================================================
 FONT_ROLES = {
-    "title":       (22, "bold"),
-    "subtitle":    (12, "normal"),
+    "title":       (18, "bold"),     # was 22 — Apple-style smaller title
+    "subtitle":    (11, "normal"),   # was 12
     "section":     (11, "bold"),
     "label":       (12, "normal"),
     "label_bold":  (11, "bold"),
-    "button_main": (15, "bold"),
+    "button_main": (14, "bold"),     # was 15
     "button_sub":  (12, "normal"),
     "switch":      (12, "normal"),
     "menu":        (12, "normal"),
@@ -242,7 +242,7 @@ COLORS = {
 # =====================================================================
 # 6. Geometry tokens (100 % DPI baseline)
 # =====================================================================
-RADIUS_CARD    = 10
+RADIUS_CARD    = 8
 RADIUS_CONTROL = 4
 RADIUS_BUTTON  = 4
 RADIUS_ENTRY   = 4
@@ -253,13 +253,30 @@ RADIUS_DIVIDER = 0
 # =====================================================================
 # 7. App-level constants
 # =====================================================================
-PAD_X                  = 28
+PAD_X                  = 18                 # outer window padding (was 28)
 WRAP_PADDING           = PAD_X * 2          # used to compute wraplength on resize
-PROGRESS_BAR_HEIGHT    = 8
+PROGRESS_BAR_HEIGHT    = 6                  # was 8 — thinner, Apple-style
 STATUS_LABEL_HEIGHT    = 18
 NOTIFY_DELAY_MS        = 0                  # delay before completion popup
 CLOSE_POLL_INTERVAL_MS = 100                # interval for waiting on cancel-then-close
 PROGRESS_LOG_BUCKET    = 5                  # log every N % progress
+
+# Fixed widths for buttons that hold translated text — locks the layout to
+# the Korean baseline so EN/JA can't shift columns.
+BTN_W_FIND_FOLDER  = 130   # "게임 폴더 찾기" / "Find Game Folder" / "ゲームフォルダーを開く"
+BTN_W_OPEN_OUTPUT  = 80    # "열기"
+BTN_W_KEY_TOGGLE   = 90    # "표시" / "숨기기"
+BTN_W_LOG_CTRL     = 80    # "복사" / "지우기"
+BTN_H_LOG_CTRL     = 24
+
+# Severity prefixes used to color log lines.  Ordering matters only when a
+# message could match multiple — first match wins.
+SEVERITY_PREFIXES: dict[str, tuple[str, ...]] = {
+    "info":    ("[i]",),
+    "success": ("[OK]", "[Done]", "[*]"),
+    "error":   ("[X]", "[Failed]", "[Fatal]"),
+    "warning": ("[!]", "[Cancelled]", "[취소]"),
+}
 
 TARGET_MODE_ORDER = ("both", "image", "audio")
 TARGET_MODE_TEXT_KEYS = {
@@ -300,12 +317,10 @@ class DecrypterApp:
         self.root.title("RPG Decrypter")
         self.set_window_icon()
 
-        # Two-column layout (controls | log) — much more square-shaped
-        # than the previous tall single-column window.  1080x840 gives
-        # both columns enough width while keeping the overall window from
-        # being awkwardly elongated.
-        self.root.geometry("1080x840")
-        self.root.minsize(900, 780)
+        # Compact Apple-style layout: controls column locked to a Korean-
+        # baseline width so EN/JA can't shift the layout, log column flexes.
+        self.root.geometry("880x680")
+        self.root.minsize(820, 640)
         self.root.resizable(True, True)
 
         # Runtime state
@@ -371,6 +386,7 @@ class DecrypterApp:
         # Warm up reactive widgets.
         self._render_key_state()
         self._on_output_dir_changed()
+        self._configure_log_tags()
 
         if not (FONT_LOADER.has_pretendard or FONT_LOADER.has_pretendard_jp):
             self.log(self.t("fonts_missing_note"))
@@ -563,6 +579,8 @@ class DecrypterApp:
             ctk.set_appearance_mode("light")
             self.log(self.t("mode_light"))
         self._update_switch_text()
+        # Tag colours are picked per-mode, so re-pick after the toggle.
+        self._configure_log_tags()
         self.save_config()
 
     def _update_switch_text(self) -> None:
@@ -803,11 +821,22 @@ class DecrypterApp:
             self.output_dir_var.set(folder)
             self.save_config()
 
-    def open_output_folder(self) -> None:
-        """Open the output folder in Windows Explorer."""
-        folder = self.output_dir_var.get().strip()
-        if folder and os.path.isdir(folder):
-            os.startfile(folder)
+    def open_output_folder(self, subdir: str = "") -> None:
+        """Open the output folder in Windows Explorer.
+
+        If *subdir* is given (e.g. the game name) and that subdirectory
+        exists under the output folder, open it directly so the user
+        lands on the decrypted assets instead of the parent folder.
+        Falls back to the bare output folder when the subdir is missing.
+        """
+        base = self.output_dir_var.get().strip()
+        if not base:
+            return
+        target = os.path.join(base, subdir) if subdir else base
+        if os.path.isdir(target):
+            os.startfile(target)
+        elif os.path.isdir(base):
+            os.startfile(base)
 
     def select_game_folder(self) -> None:
         selected_dir = filedialog.askdirectory(
@@ -954,10 +983,56 @@ class DecrypterApp:
     def log(self, message: str) -> None:
         self.root.after(0, lambda: self._append_log(message))
 
+    @staticmethod
+    def _detect_severity(message: str) -> str | None:
+        """Return one of {info, warning, error, success} or None.
+
+        Driven by the leading bracket prefix in *message* — see
+        ``SEVERITY_PREFIXES``.  Returns None for unprefixed lines so they
+        render in the default colour.
+        """
+        msg = message.lstrip()
+        for severity, prefixes in SEVERITY_PREFIXES.items():
+            for prefix in prefixes:
+                if msg.startswith(prefix):
+                    return severity
+        return None
+
+    def _configure_log_tags(self) -> None:
+        """(Re)configure log Text-widget tag colours for the current theme.
+
+        Tag colours are picked from the COLORS table using the appropriate
+        light/dark variant so the log lines remain readable on either bg.
+        Called once after _build_ui and again on appearance toggles.
+        """
+        if not hasattr(self, "log_area"):
+            return
+        mode_idx = 0 if self.current_appearance == "light" else 1
+        for severity, color_key in (
+            ("info",    "accent"),
+            ("warning", "warning"),
+            ("error",   "danger"),
+            ("success", "success"),
+        ):
+            try:
+                self.log_area.tag_config(
+                    severity, foreground=COLORS[color_key][mode_idx]
+                )
+            except Exception:
+                pass
+
     def _append_log(self, message: str) -> None:
         try:
             self.log_area.configure(state="normal")
+            severity   = self._detect_severity(message)
+            line_start = self.log_area.index("end-1c")
             self.log_area.insert(tk.END, message + "\n")
+            if severity:
+                line_end = self.log_area.index("end-1c")
+                try:
+                    self.log_area.tag_add(severity, line_start, line_end)
+                except Exception:
+                    pass
             self.log_area.see(tk.END)
             self.log_area.configure(state="disabled")
         except Exception:
@@ -1155,14 +1230,17 @@ class DecrypterApp:
             input_path   = os.path.join(root_dir, filename)
             relative_dir = os.path.relpath(root_dir, input_dir)
 
-            # Prefix exact "img" / "audio" path components with the game name.
-            # pathlib.PurePath splits on the OS separator so only whole folder
-            # names are matched (e.g. "imagine", "audiobgm" are unaffected).
-            parts     = pathlib.PurePath(relative_dir).parts
-            new_parts = tuple(
-                f"{game_name}-{p}" if p in ("img", "audio") else p
-                for p in parts
-            )
+            # Insert the game name as a *parent* folder before the first
+            # "img" or "audio" component, producing  "gamename/img/face/A.png"
+            # rather than the older "gamename-img/face/A.png" (which mashed
+            # the names into a single segment).
+            parts = pathlib.PurePath(relative_dir).parts
+            new_parts = list(parts)
+            if game_name:
+                for i, p in enumerate(parts):
+                    if p in ("img", "audio"):
+                        new_parts.insert(i, game_name)
+                        break
             new_relative_dir = os.path.join(*new_parts) if new_parts else relative_dir
 
             target_dir = os.path.join(output_dir, new_relative_dir)
@@ -1226,6 +1304,7 @@ class DecrypterApp:
             "failed_files":       failed_files,
             "cancelled_in_loop":  cancelled_in_loop,
             "total":              total,
+            "game_name":          game_name,
         }
 
     def _log_summary(self, stats: dict, unsupported_count: int) -> None:
@@ -1319,7 +1398,10 @@ class DecrypterApp:
             )
 
         if self.auto_open_var.get():
-            self.open_output_folder()
+            # Try to open the game-specific folder first (output_dir/GameName)
+            # so the user lands on the actual decrypted assets.  The helper
+            # falls back to the bare output folder if it's not there.
+            self.open_output_folder(subdir=stats.get("game_name", ""))
 
     def finish_processing(self) -> None:
         def _reset() -> None:
@@ -1387,20 +1469,21 @@ class DecrypterApp:
     # ==================================================================
     def _build_ui(self) -> None:
         # ── Top-level grid: 2 columns (controls | log), 3 rows ───────
-        # Header & divider span both columns. Row 2 holds the controls
-        # panel (col 0) and the log frame (col 1) side-by-side.
-        self.root.grid_columnconfigure(0, weight=2, minsize=440)  # controls
-        self.root.grid_columnconfigure(1, weight=3, minsize=320)  # log
+        # Controls column is *locked* to a Korean-baseline width so changing
+        # language doesn't shift the layout.  Log column flexes with the
+        # window so the user can grow it for verbose runs.
+        self.root.grid_columnconfigure(0, weight=0, minsize=460)  # controls (LOCKED)
+        self.root.grid_columnconfigure(1, weight=1, minsize=300)  # log (flex)
         self.root.grid_rowconfigure(0, weight=0)  # header
         self.root.grid_rowconfigure(1, weight=0)  # divider
         self.root.grid_rowconfigure(2, weight=1)  # main row
 
-        PAD_GAP = 12  # gap between controls panel and log frame
+        PAD_GAP = 10  # gap between controls panel and log panel
 
         # ── Header (spans both columns) ──────────────────────────────
         header = ctk.CTkFrame(self.root, fg_color="transparent", corner_radius=RADIUS_DIVIDER)
         header.grid(row=0, column=0, columnspan=2, sticky="ew",
-                    padx=PAD_X, pady=(22, 4))
+                    padx=PAD_X, pady=(16, 2))
         header.grid_columnconfigure(0, weight=1)
 
         title_row = ctk.CTkFrame(header, fg_color="transparent")
@@ -1440,12 +1523,12 @@ class DecrypterApp:
         ctk.CTkFrame(
             self.root, height=1, fg_color=COLORS["border"], corner_radius=RADIUS_DIVIDER
         ).grid(row=1, column=0, columnspan=2, sticky="ew",
-               padx=PAD_X, pady=(10, 14))
+               padx=PAD_X, pady=(8, 10))
 
         # ── Left column: controls panel ──────────────────────────────
         controls = ctk.CTkFrame(self.root, fg_color="transparent")
         controls.grid(row=2, column=0, sticky="nsew",
-                      padx=(PAD_X, PAD_GAP), pady=(0, 20))
+                      padx=(PAD_X, PAD_GAP), pady=(0, 14))
         controls.grid_columnconfigure(0, weight=1)
         for r in range(0, 9):
             controls.grid_rowconfigure(r, weight=0)
@@ -1456,7 +1539,7 @@ class DecrypterApp:
 
         settings_card = self._card(parent=controls, row=1)
         settings_row  = ctk.CTkFrame(settings_card, fg_color="transparent")
-        settings_row.pack(fill="x", padx=16, pady=14)
+        settings_row.pack(fill="x", padx=12, pady=10)
         settings_row.grid_columnconfigure(0, weight=1)
         settings_row.grid_columnconfigure(1, weight=1)
 
@@ -1511,7 +1594,7 @@ class DecrypterApp:
 
         # Target mode
         target_box = ctk.CTkFrame(settings_card, fg_color="transparent")
-        target_box.pack(fill="x", padx=16, pady=(0, 14))
+        target_box.pack(fill="x", padx=12, pady=(0, 10))
         self.widgets["target_label"] = self._register_font(
             ctk.CTkLabel(target_box, text="", text_color=COLORS["text_tertiary"], anchor="w"),
             "label_bold",
@@ -1543,7 +1626,7 @@ class DecrypterApp:
 
         card1      = self._card(parent=controls, row=3)
         row_folder = ctk.CTkFrame(card1, fg_color="transparent")
-        row_folder.pack(fill="x", padx=16, pady=(14, 8))
+        row_folder.pack(fill="x", padx=12, pady=(10, 6))
 
         # Pack right-side button first so expand= fills the remainder.
         self.widgets["folder_button_game"] = ctk.CTkButton(
@@ -1553,7 +1636,7 @@ class DecrypterApp:
             text_color=COLORS["text_primary"],
             border_color=COLORS["border"], border_width=1,
             corner_radius=RADIUS_CONTROL,
-            height=36, width=110,
+            height=32, width=BTN_W_FIND_FOLDER,
             command=self.select_game_folder,
         )
         self._register_font(self.widgets["folder_button_game"], "button_sub")
@@ -1566,17 +1649,17 @@ class DecrypterApp:
             fg_color=COLORS["surface_alt"],
             border_color=COLORS["border"],
             text_color=COLORS["text_secondary"],
-            corner_radius=RADIUS_CONTROL, height=36,
+            corner_radius=RADIUS_CONTROL, height=32,
         )
         self._register_font(self.entry_input, "label")
-        self.entry_input.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        self.entry_input.pack(side="left", fill="x", expand=True, padx=(0, 8))
         self.placeholder_widgets.append((self.entry_input, "input_placeholder"))
 
-        ctk.CTkFrame(card1, height=1, fg_color=COLORS["border"]).pack(fill="x", padx=16, pady=0)
+        ctk.CTkFrame(card1, height=1, fg_color=COLORS["border"]).pack(fill="x", padx=12, pady=0)
 
         # Key row
         row_key = ctk.CTkFrame(card1, fg_color="transparent")
-        row_key.pack(fill="x", padx=16, pady=(10, 14))
+        row_key.pack(fill="x", padx=12, pady=(8, 10))
 
         self.widgets["key_label"] = self._register_font(
             ctk.CTkLabel(row_key, text="", text_color=COLORS["text_tertiary"]),
@@ -1595,7 +1678,7 @@ class DecrypterApp:
             text_color=COLORS["text_primary"],
             border_color=COLORS["border"], border_width=1,
             corner_radius=RADIUS_CONTROL,
-            height=36, width=90,
+            height=32, width=BTN_W_KEY_TOGGLE,
             command=self.toggle_key_visibility,
         )
         self._register_font(self.btn_toggle_key, "button_sub")
@@ -1609,10 +1692,10 @@ class DecrypterApp:
             fg_color=COLORS["surface_alt"],
             border_color=COLORS["accent"],
             text_color=COLORS["success"],
-            corner_radius=RADIUS_CONTROL, height=36,
+            corner_radius=RADIUS_CONTROL, height=32,
         )
         self.entry_key.configure(font=self._font("mono_key"))
-        self.entry_key.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        self.entry_key.pack(side="left", fill="x", expand=True, padx=(0, 8))
         self.placeholder_widgets.append((self.entry_key, "key_placeholder"))
 
         self.widgets["key_note"] = self._register_font(
@@ -1631,7 +1714,7 @@ class DecrypterApp:
 
         card2   = self._card(parent=controls, row=5)
         row_out = ctk.CTkFrame(card2, fg_color="transparent")
-        row_out.pack(fill="x", padx=16, pady=14)
+        row_out.pack(fill="x", padx=12, pady=10)
 
         self.widgets["folder_button_output"] = ctk.CTkButton(
             row_out, text="",
@@ -1640,7 +1723,7 @@ class DecrypterApp:
             text_color=COLORS["text_primary"],
             border_color=COLORS["border"], border_width=1,
             corner_radius=RADIUS_CONTROL,
-            height=36, width=110,
+            height=32, width=BTN_W_FIND_FOLDER,
             command=self.select_output_folder,
         )
         self._register_font(self.widgets["folder_button_output"], "button_sub")
@@ -1655,12 +1738,12 @@ class DecrypterApp:
             text_color=COLORS["text_primary"],
             border_color=COLORS["border"], border_width=1,
             corner_radius=RADIUS_CONTROL,
-            height=36, width=80,
+            height=32, width=BTN_W_OPEN_OUTPUT,
             command=self.open_output_folder,
         )
         self.widgets["open_output"] = self.btn_open_output
         self._register_font(self.btn_open_output, "button_sub")
-        self.btn_open_output.pack(side="right", padx=(0, 8))
+        self.btn_open_output.pack(side="right", padx=(0, 6))
 
         self.entry_output = ctk.CTkEntry(
             row_out,
@@ -1669,16 +1752,16 @@ class DecrypterApp:
             fg_color=COLORS["surface_alt"],
             border_color=COLORS["border"],
             text_color=COLORS["text_secondary"],
-            corner_radius=RADIUS_CONTROL, height=36,
+            corner_radius=RADIUS_CONTROL, height=32,
         )
         self._register_font(self.entry_output, "label")
-        self.entry_output.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        self.entry_output.pack(side="left", fill="x", expand=True, padx=(0, 8))
         self.placeholder_widgets.append((self.entry_output, "output_placeholder"))
 
         # Auto-open option — lives next to the output folder so it sits
         # exactly where users are configuring "where the result goes".
         auto_open_box = ctk.CTkFrame(card2, fg_color="transparent")
-        auto_open_box.pack(fill="x", padx=16, pady=(0, 14))
+        auto_open_box.pack(fill="x", padx=12, pady=(0, 10))
         self.widgets["auto_open_label"] = self._register_font(
             ctk.CTkCheckBox(
                 auto_open_box, text="",
@@ -1701,11 +1784,11 @@ class DecrypterApp:
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             text_color="#ffffff",
-            corner_radius=RADIUS_BUTTON, height=54,
+            corner_radius=RADIUS_BUTTON, height=44,
             command=self.start_processing,
         )
         self._register_font(self.btn_run, "button_main")
-        self.btn_run.grid(row=6, column=0, sticky="ew", pady=(18, 0))
+        self.btn_run.grid(row=6, column=0, sticky="ew", pady=(14, 0))
 
         # ── Progress bar ─────────────────────────────────────────────
         self.progress_bar = ctk.CTkProgressBar(
@@ -1732,47 +1815,36 @@ class DecrypterApp:
             row=8, column=0, sticky="ew", padx=4, pady=(2, 0)
         )
 
-        # ── Right column: log frame (full height of row 2) ───────────
-        log_frame = ctk.CTkFrame(
-            self.root,
-            fg_color=COLORS["surface"],
-            corner_radius=RADIUS_CARD,
-            border_width=1,
-            border_color=COLORS["border"],
+        # ── Right column: log panel ──────────────────────────────────
+        # The "LOG  /  Copy  Clear" header sits OUTSIDE the textbox card
+        # so it lines up vertically with the section labels on the left
+        # ("설정", "원본 게임 폴더", "결과물 저장 폴더").
+        log_panel = ctk.CTkFrame(self.root, fg_color="transparent")
+        log_panel.grid(row=2, column=1, sticky="nsew",
+                       padx=(PAD_GAP, PAD_X), pady=(0, 14))
+        log_panel.grid_columnconfigure(0, weight=1)
+        log_panel.grid_rowconfigure(0, weight=0)  # header
+        log_panel.grid_rowconfigure(1, weight=1)  # textbox card
+
+        # Header row — same pady as section labels on the left so the
+        # "LOG" baseline aligns with "설정".
+        log_header = ctk.CTkFrame(log_panel, fg_color="transparent")
+        log_header.grid(row=0, column=0, sticky="ew", padx=4, pady=(10, 0))
+        log_header.grid_columnconfigure(0, weight=1)
+
+        self.widgets["log_header"] = self._register_font(
+            ctk.CTkLabel(
+                log_header, text="",
+                text_color=COLORS["text_tertiary"],
+                anchor="w",
+            ),
+            "section",
         )
-        log_frame.grid(row=2, column=1, sticky="nsew",
-                       padx=(PAD_GAP, PAD_X), pady=(0, 20))
-        log_frame.grid_columnconfigure(0, weight=1)
-        log_frame.grid_rowconfigure(1, weight=1)
-
-        log_header = ctk.CTkFrame(log_frame, fg_color="transparent")
-        log_header.grid(row=0, column=0, sticky="ew", padx=14, pady=(10, 4))
-
-        self.widgets["log_header"] = ctk.CTkLabel(
-            log_header, text="", text_color=COLORS["success"],
-        )
-        self._register_font(self.widgets["log_header"], "mono_log_header")
-        self.widgets["log_header"].pack(side="left")
-
-        # Log controls (Copy / Clear) on the right.
-        log_controls = ctk.CTkFrame(log_header, fg_color="transparent")
-        log_controls.pack(side="right")
-
-        self.widgets["log_clear"] = ctk.CTkButton(
-            log_controls, text="",
-            width=70, height=24,
-            fg_color=COLORS["surface_alt"],
-            hover_color=COLORS["border"],
-            text_color=COLORS["text_secondary"],
-            corner_radius=RADIUS_CONTROL,
-            command=self.clear_log,
-        )
-        self._register_font(self.widgets["log_clear"], "note")
-        self.widgets["log_clear"].pack(side="right", padx=(4, 0))
+        self.widgets["log_header"].grid(row=0, column=0, sticky="w")
 
         self.widgets["log_copy"] = ctk.CTkButton(
-            log_controls, text="",
-            width=70, height=24,
+            log_header, text="",
+            width=BTN_W_LOG_CTRL, height=BTN_H_LOG_CTRL,
             fg_color=COLORS["surface_alt"],
             hover_color=COLORS["border"],
             text_color=COLORS["text_secondary"],
@@ -1780,10 +1852,34 @@ class DecrypterApp:
             command=self.copy_log,
         )
         self._register_font(self.widgets["log_copy"], "note")
-        self.widgets["log_copy"].pack(side="right")
+        self.widgets["log_copy"].grid(row=0, column=1, padx=(0, 6))
+
+        self.widgets["log_clear"] = ctk.CTkButton(
+            log_header, text="",
+            width=BTN_W_LOG_CTRL, height=BTN_H_LOG_CTRL,
+            fg_color=COLORS["surface_alt"],
+            hover_color=COLORS["border"],
+            text_color=COLORS["text_secondary"],
+            corner_radius=RADIUS_CONTROL,
+            command=self.clear_log,
+        )
+        self._register_font(self.widgets["log_clear"], "note")
+        self.widgets["log_clear"].grid(row=0, column=2)
+
+        # Log textbox card — borderless, picks up the surface tone vs the
+        # window bg so it visually separates without an explicit outline.
+        log_card = ctk.CTkFrame(
+            log_panel,
+            fg_color=COLORS["surface"],
+            corner_radius=RADIUS_CARD,
+            border_width=0,
+        )
+        log_card.grid(row=1, column=0, sticky="nsew", pady=(6, 0))
+        log_card.grid_columnconfigure(0, weight=1)
+        log_card.grid_rowconfigure(0, weight=1)
 
         self.log_area = ctk.CTkTextbox(
-            log_frame,
+            log_card,
             fg_color="transparent",
             text_color=COLORS["text_secondary"],
             scrollbar_button_color=COLORS["border"],
@@ -1792,7 +1888,7 @@ class DecrypterApp:
             wrap="word",
         )
         self._register_font(self.log_area, "mono_log")
-        self.log_area.grid(row=1, column=0, sticky="nsew", padx=6, pady=(0, 8))
+        self.log_area.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
 
     # ------------------------------------------------------------------
     # UI helpers
@@ -1805,17 +1901,20 @@ class DecrypterApp:
             anchor="w",
         )
         self._register_font(label, "section")
-        label.grid(row=row, column=0, sticky="ew", padx=4, pady=(14, 0))
+        label.grid(row=row, column=0, sticky="ew", padx=4, pady=(10, 0))
         self.widgets[translation_key] = label
 
     def _card(self, *, parent, row: int) -> ctk.CTkFrame:
-        """Create a card frame inside *parent* on the given grid row."""
+        """Create a card frame inside *parent* on the given grid row.
+
+        Apple-style: no outline border — the surface vs bg colour
+        contrast does the visual separation.
+        """
         card = ctk.CTkFrame(
             parent,
             fg_color=COLORS["surface"],
             corner_radius=RADIUS_CARD,
-            border_width=1,
-            border_color=COLORS["border"],
+            border_width=0,
         )
         card.grid(row=row, column=0, sticky="ew", padx=0, pady=(6, 0))
         return card
