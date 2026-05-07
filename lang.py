@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Language options and translation strings for RPG Decrypter."""
+"""Language options and translation strings for RPG Decrypter.
+
+All UI strings are kept ASCII-only outside of CJK letters/punctuation —
+no decorative geometric / arrow / ellipsis Unicode glyphs (which were
+rendering as missing-glyph boxes on the user's machine).
+"""
 
 # =====================================================================
 # 1. Language options
@@ -18,7 +23,7 @@ LANGUAGE_CODES_BY_LABEL = {label: code for code, label in LANGUAGE_OPTIONS.items
 #    Terminology notes
 #      KO: uses "복호화"  (decryption / decrypt)
 #      EN: uses "decryption / decrypt"
-#      JA: uses "復号"   (no -化 suffix — modern standard usage)
+#      JA: uses "復号"   (no -化 suffix - modern standard usage)
 # =====================================================================
 TEXT = {
     "ko": {
@@ -26,12 +31,12 @@ TEXT = {
         "window_title": "RPG Decrypter",
         "app_title":    "RPG Decrypter",
         "app_subtitle": "RPG Maker MV/MZ 암호화 미디어 에셋을 복호화 합니다",
-        "quick_guide":  "①  게임 폴더 선택   →   ②  자동 키 추출   →   ③  ▶  복호화 시작",
+        "quick_guide":  "1) 게임 폴더 선택   ->   2) 자동 키 추출   ->   3) 복호화 시작",
 
-        # sections
-        "settings_section": "▣  설정",
-        "section_game":     "▣  원본 게임 폴더",
-        "section_output":   "▣  결과물 저장 폴더",
+        # sections (no decorative prefix - bold weight provides hierarchy)
+        "settings_section": "설정",
+        "section_game":     "원본 게임 폴더",
+        "section_output":   "결과물 저장 폴더",
 
         # settings
         "appearance_label": "화면 모드",
@@ -57,12 +62,12 @@ TEXT = {
         "open_output":          "열기",
         "key_show":             "표시",
         "key_hide":             "숨기기",
-        "run_button":           "▶  복호화 시작",
-        "cancel_button":        "✕  취소",
-        "cancelling_button":    "취소 중…",
+        "run_button":           "복호화 시작",
+        "cancel_button":        "취소",
+        "cancelling_button":    "취소 중...",
 
         # log header + log controls
-        "log_header":              "● LOG",
+        "log_header":              "LOG",
         "log_copy":                "복사",
         "log_clear":               "지우기",
         "log_clear_confirm_title": "확인",
@@ -74,16 +79,16 @@ TEXT = {
         "ctx_paste": "붙여넣기",
 
         # status label (below progress bar)
-        "scan_status":    "스캔 중…",
-        "decrypt_status": "복호화 중…  {processed}/{total}  ({percent}%)   ·   남은 시간 {eta}",
+        "scan_status":    "스캔 중...",
+        "decrypt_status": "복호화 중...  {processed}/{total}  ({percent}%)    |    남은 시간 {eta}",
         "cancel_status":  "취소되었습니다.",
-        "shortcuts_hint": "F5  ▶ 시작     ·     Esc  ✕ 취소     ·     Ctrl+L  로그 지우기",
+        "shortcuts_hint": "F5: 시작     |     Esc: 취소     |     Ctrl+L: 로그 지우기",
 
         # ETA formatting
         "eta_seconds":  "{s}초",
         "eta_min_sec":  "{m}분 {s}초",
         "eta_hour_min": "{h}시간 {m}분",
-        "eta_unknown":  "—",
+        "eta_unknown":  "-",
 
         # dialogs
         "select_game_dialog":   "원본 게임 폴더 선택",
@@ -112,7 +117,7 @@ TEXT = {
 
         # key auto-detection
         "key_search_header":      "[*] System.json 자동 탐색 시작:",
-        "key_search_path_check":  "    - 확인: {path}  →  {status}",
+        "key_search_path_check":  "    - 확인: {path}  ->  {status}",
         "status_not_found":       "파일 없음",
         "status_read_error":      "읽기 오류 ({error})",
         "status_key_missing":     "encryptionKey 필드 없음",
@@ -132,7 +137,7 @@ TEXT = {
 
         # processing
         "start_log":           "[Start] 복호화 작업을 시작합니다.",
-        "scan_log":            "[Scan] 입력 폴더를 탐색 중…",
+        "scan_log":            "[Scan] 입력 폴더를 탐색 중...",
         "count_log":           "[Info] 복호화 대상 파일 {total}개를 찾았습니다.",
         "progress_log":        "[Progress] 진행률 {percent}% ({processed}/{total})",
         "failed_files_header": "[Failed] 실패한 파일 목록:",
@@ -140,7 +145,7 @@ TEXT = {
         "cancel_log":          "[취소] 사용자가 복호화를 취소했습니다.",
         "plain_media_summary": "[Info] 암호화되지 않은 일반 미디어 파일 발견: PNG {png}개, OGG {ogg}개, M4A {m4a}개",
         "file_failed":         "[X]    실패: {path} / 이유: {reason}",
-        "done_log":            "[Done] 작업 완료 — 성공 {success}개, 실패 {failed}개, 건너뜀 {skipped}개, 전체 {total}개",
+        "done_log":            "[Done] 작업 완료 - 성공 {success}개, 실패 {failed}개, 건너뜀 {skipped}개, 전체 {total}개",
         "done_all_success":    "모든 대상 파일이 정상적으로 복호화되었습니다.",
         "done_some_failed":    "일부 파일 처리에 실패했습니다. 로그를 확인해 주세요.",
 
@@ -161,11 +166,11 @@ TEXT = {
         "window_title": "RPG Decrypter",
         "app_title":    "RPG Decrypter",
         "app_subtitle": "Decrypts RPG Maker MV/MZ encrypted media assets.",
-        "quick_guide":  "①  Pick game folder   →   ②  Auto-detect key   →   ③  ▶  Run",
+        "quick_guide":  "1) Pick game folder   ->   2) Auto-detect key   ->   3) Run",
 
-        "settings_section": "▣  Settings",
-        "section_game":     "▣  Source Game Folder",
-        "section_output":   "▣  Output Folder",
+        "settings_section": "Settings",
+        "section_game":     "Source Game Folder",
+        "section_output":   "Output Folder",
 
         "appearance_label": "Appearance",
         "language_label":   "Language",
@@ -188,11 +193,11 @@ TEXT = {
         "open_output":          "Open",
         "key_show":             "Show",
         "key_hide":             "Hide",
-        "run_button":           "▶  Start Decryption",
-        "cancel_button":        "✕  Cancel",
-        "cancelling_button":    "Cancelling…",
+        "run_button":           "Start Decryption",
+        "cancel_button":        "Cancel",
+        "cancelling_button":    "Cancelling...",
 
-        "log_header":              "● LOG",
+        "log_header":              "LOG",
         "log_copy":                "Copy",
         "log_clear":               "Clear",
         "log_clear_confirm_title": "Confirm",
@@ -202,15 +207,15 @@ TEXT = {
         "ctx_copy":  "Copy",
         "ctx_paste": "Paste",
 
-        "scan_status":    "Scanning…",
-        "decrypt_status": "Decrypting…  {processed}/{total}  ({percent}%)   ·   ETA {eta}",
+        "scan_status":    "Scanning...",
+        "decrypt_status": "Decrypting...  {processed}/{total}  ({percent}%)    |    ETA {eta}",
         "cancel_status":  "Cancelled.",
-        "shortcuts_hint": "F5  ▶ Run     ·     Esc  ✕ Cancel     ·     Ctrl+L  Clear log",
+        "shortcuts_hint": "F5: Run     |     Esc: Cancel     |     Ctrl+L: Clear log",
 
         "eta_seconds":  "{s}s",
         "eta_min_sec":  "{m}m {s}s",
         "eta_hour_min": "{h}h {m}m",
-        "eta_unknown":  "—",
+        "eta_unknown":  "-",
 
         "select_game_dialog":   "Select Source Game Folder",
         "select_output_dialog": "Select Output Folder",
@@ -235,7 +240,7 @@ TEXT = {
         "config_saved_fail":  "[!] Failed to save config: {error}",
 
         "key_search_header":      "[*] Auto-detecting System.json:",
-        "key_search_path_check":  "    - check: {path}  →  {status}",
+        "key_search_path_check":  "    - check: {path}  ->  {status}",
         "status_not_found":       "not found",
         "status_read_error":      "read error ({error})",
         "status_key_missing":     "encryptionKey field missing",
@@ -245,7 +250,7 @@ TEXT = {
         "status_ok":              "valid key found",
         "key_found":              "[*] Decryption key auto-detected: {key}",
         "key_search_failed":      "[!] Could not find a valid key in any System.json.",
-        "unencrypted_game":       "[i] This game is not encrypted — no decryption is needed.",
+        "unencrypted_game":       "[i] This game is not encrypted - no decryption is needed.",
         "encrypted_no_key":       "[!] Encrypted game detected, but no key found in System.json. Please enter the key manually.",
 
         "lang_changed": "[Lang] Language changed to English.",
@@ -253,7 +258,7 @@ TEXT = {
         "mode_light":   "[Light] Light mode enabled.",
 
         "start_log":           "[Start] Starting decryption.",
-        "scan_log":            "[Scan] Scanning input folder…",
+        "scan_log":            "[Scan] Scanning input folder...",
         "count_log":           "[Info] Found {total} target file(s).",
         "progress_log":        "[Progress] {percent}% ({processed}/{total})",
         "failed_files_header": "[Failed] Failed file list:",
@@ -261,7 +266,7 @@ TEXT = {
         "cancel_log":          "[Cancelled] Decryption was cancelled by the user.",
         "plain_media_summary": "[Info] Normal unencrypted media found: PNG {png}, OGG {ogg}, M4A {m4a}",
         "file_failed":         "[X]    Failed: {path} / Reason: {reason}",
-        "done_log":            "[Done] Completed — {success} succeeded, {failed} failed, {skipped} skipped, {total} total",
+        "done_log":            "[Done] Completed - {success} succeeded, {failed} failed, {skipped} skipped, {total} total",
         "done_all_success":    "All target files were decrypted successfully.",
         "done_some_failed":    "Some files failed. Please check the log for details.",
 
@@ -280,11 +285,11 @@ TEXT = {
         "window_title": "RPG Decrypter",
         "app_title":    "RPG Decrypter",
         "app_subtitle": "RPG Maker MV/MZ で暗号化されたメディアアセットを復号します。",
-        "quick_guide":  "①  ゲームフォルダー選択   →   ②  キー自動取得   →   ③  ▶  復号開始",
+        "quick_guide":  "1) ゲームフォルダー選択   ->   2) キー自動取得   ->   3) 復号開始",
 
-        "settings_section": "▣  設定",
-        "section_game":     "▣  元ゲームフォルダー",
-        "section_output":   "▣  出力フォルダー",
+        "settings_section": "設定",
+        "section_game":     "元ゲームフォルダー",
+        "section_output":   "出力フォルダー",
 
         "appearance_label": "表示モード",
         "language_label":   "言語",
@@ -307,11 +312,11 @@ TEXT = {
         "open_output":          "開く",
         "key_show":             "表示",
         "key_hide":             "非表示",
-        "run_button":           "▶  復号開始",
-        "cancel_button":        "✕  キャンセル",
-        "cancelling_button":    "キャンセル中…",
+        "run_button":           "復号開始",
+        "cancel_button":        "キャンセル",
+        "cancelling_button":    "キャンセル中...",
 
-        "log_header":              "● LOG",
+        "log_header":              "LOG",
         "log_copy":                "コピー",
         "log_clear":               "クリア",
         "log_clear_confirm_title": "確認",
@@ -321,15 +326,15 @@ TEXT = {
         "ctx_copy":  "コピー",
         "ctx_paste": "貼り付け",
 
-        "scan_status":    "スキャン中…",
-        "decrypt_status": "復号中…  {processed}/{total}  ({percent}%)   ·   残り {eta}",
+        "scan_status":    "スキャン中...",
+        "decrypt_status": "復号中...  {processed}/{total}  ({percent}%)    |    残り {eta}",
         "cancel_status":  "キャンセルされました。",
-        "shortcuts_hint": "F5  ▶ 実行     ·     Esc  ✕ 中止     ·     Ctrl+L  ログ消去",
+        "shortcuts_hint": "F5: 実行     |     Esc: 中止     |     Ctrl+L: ログ消去",
 
         "eta_seconds":  "{s} 秒",
         "eta_min_sec":  "{m} 分 {s} 秒",
         "eta_hour_min": "{h} 時間 {m} 分",
-        "eta_unknown":  "—",
+        "eta_unknown":  "-",
 
         "select_game_dialog":   "元ゲームフォルダーを選択",
         "select_output_dialog": "出力フォルダーを選択",
@@ -354,7 +359,7 @@ TEXT = {
         "config_saved_fail":  "[!] 設定の保存に失敗しました: {error}",
 
         "key_search_header":      "[*] System.json の自動検出を開始:",
-        "key_search_path_check":  "    - 確認: {path}  →  {status}",
+        "key_search_path_check":  "    - 確認: {path}  ->  {status}",
         "status_not_found":       "見つかりません",
         "status_read_error":      "読み込みエラー ({error})",
         "status_key_missing":     "encryptionKey フィールドがありません",
@@ -372,7 +377,7 @@ TEXT = {
         "mode_light":   "[Light] ライトモードに切り替えました。",
 
         "start_log":           "[Start] 復号処理を開始します。",
-        "scan_log":            "[Scan] 入力フォルダーを走査中…",
+        "scan_log":            "[Scan] 入力フォルダーを走査中...",
         "count_log":           "[Info] 対象ファイルを {total} 個検出しました。",
         "progress_log":        "[Progress] 進行率 {percent}% ({processed}/{total})",
         "failed_files_header": "[Failed] 失敗したファイル一覧:",
@@ -380,7 +385,7 @@ TEXT = {
         "cancel_log":          "[Cancelled] ユーザーによって復号がキャンセルされました。",
         "plain_media_summary": "[Info] 暗号化されていない通常メディアを検出: PNG {png} 個、OGG {ogg} 個、M4A {m4a} 個",
         "file_failed":         "[X]    失敗: {path} / 理由: {reason}",
-        "done_log":            "[Done] 完了 — 成功 {success} / 失敗 {failed} / スキップ {skipped} / 合計 {total}",
+        "done_log":            "[Done] 完了 - 成功 {success} / 失敗 {failed} / スキップ {skipped} / 合計 {total}",
         "done_all_success":    "すべての対象ファイルを正常に復号しました。",
         "done_some_failed":    "一部のファイル処理に失敗しました。ログをご確認ください。",
 

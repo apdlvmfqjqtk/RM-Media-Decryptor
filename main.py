@@ -1250,7 +1250,7 @@ class DecrypterApp:
         )
 
     def _format_eta(self, seconds: float | None) -> str:
-        """Render an ETA in the user's language. Returns "—" when unknown."""
+        """Render an ETA in the user's language. Returns "-" when unknown."""
         if seconds is None or seconds < 0:
             return self.t("eta_unknown")
         s_total = int(seconds)

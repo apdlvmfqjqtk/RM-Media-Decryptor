@@ -77,7 +77,7 @@ def mask_key(key: str) -> str:
     key = key.strip()
     if len(key) <= 10:
         return "*" * len(key)
-    return f"{key[:6]}…{key[-4:]}"
+    return f"{key[:6]}...{key[-4:]}"
 
 
 def get_system_json_candidates(selected_dir: str) -> list[str]:
