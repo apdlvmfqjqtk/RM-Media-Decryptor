@@ -80,9 +80,9 @@ TEXT = {
 
         # status label (below progress bar)
         "scan_status":    "스캔 중...",
-        "decrypt_status": "복호화 중...  {processed}/{total}  ({percent}%)    |    남은 시간 {eta}",
+        "decrypt_status": "복호화 중  {processed}/{total} ({percent}%)  |  {eta}",
         "cancel_status":  "취소되었습니다.",
-        "shortcuts_hint": "F5: 시작     |     Esc: 취소     |     Ctrl+L: 로그 지우기",
+        "shortcuts_hint": "F5: 시작   |   Esc: 취소   |   Ctrl+L: 로그 지우기",
 
         # ETA formatting
         "eta_seconds":  "{s}초",
@@ -208,9 +208,9 @@ TEXT = {
         "ctx_paste": "Paste",
 
         "scan_status":    "Scanning...",
-        "decrypt_status": "Decrypting...  {processed}/{total}  ({percent}%)    |    ETA {eta}",
+        "decrypt_status": "Decrypting  {processed}/{total} ({percent}%)  |  ETA {eta}",
         "cancel_status":  "Cancelled.",
-        "shortcuts_hint": "F5: Run     |     Esc: Cancel     |     Ctrl+L: Clear log",
+        "shortcuts_hint": "F5: Run   |   Esc: Cancel   |   Ctrl+L: Clear log",
 
         "eta_seconds":  "{s}s",
         "eta_min_sec":  "{m}m {s}s",
@@ -327,9 +327,9 @@ TEXT = {
         "ctx_paste": "貼り付け",
 
         "scan_status":    "スキャン中...",
-        "decrypt_status": "復号中...  {processed}/{total}  ({percent}%)    |    残り {eta}",
+        "decrypt_status": "復号中  {processed}/{total} ({percent}%)  |  残り {eta}",
         "cancel_status":  "キャンセルされました。",
-        "shortcuts_hint": "F5: 実行     |     Esc: 中止     |     Ctrl+L: ログ消去",
+        "shortcuts_hint": "F5: 実行   |   Esc: 中止   |   Ctrl+L: ログ消去",
 
         "eta_seconds":  "{s} 秒",
         "eta_min_sec":  "{m} 分 {s} 秒",

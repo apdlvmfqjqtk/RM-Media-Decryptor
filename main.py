@@ -300,11 +300,12 @@ class DecrypterApp:
         self.root.title("RPG Decrypter")
         self.set_window_icon()
 
-        # Initial size is generous so the log area always shows several
-        # lines on first launch (HiDPI / 125-150 % scaling can squeeze the
-        # bottom panel surprisingly hard at smaller sizes).
-        self.root.geometry("640x1060")
-        self.root.minsize(500, 740)
+        # Two-column layout (controls | log) — much more square-shaped
+        # than the previous tall single-column window.  1080x840 gives
+        # both columns enough width while keeping the overall window from
+        # being awkwardly elongated.
+        self.root.geometry("1080x840")
+        self.root.minsize(900, 780)
         self.root.resizable(True, True)
 
         # Runtime state
@@ -356,6 +357,8 @@ class DecrypterApp:
 
         # Reactive bindings (after _build_ui so widgets exist).
         self.root.bind("<Configure>", self._on_root_configure)
+        if hasattr(self, "_controls_panel"):
+            self._controls_panel.bind("<Configure>", self._on_controls_configure)
         self.key_var.trace_add("write", self._on_key_changed)
         self.output_dir_var.trace_add("write", self._on_output_dir_changed)
 
@@ -596,16 +599,30 @@ class DecrypterApp:
     # Reactive UI helpers
     # ------------------------------------------------------------------
     def _on_root_configure(self, event) -> None:
-        """Dynamically update wraplength for long-text labels on resize."""
+        """Update wraplength for full-width labels (header subtitle/guide)."""
         if event.widget is not self.root:
             return
-        new_wrap = max(100, event.width - WRAP_PADDING)
-        for key in ("app_subtitle", "key_note"):
+        new_wrap = max(200, event.width - WRAP_PADDING)
+        for key in ("app_subtitle", "quick_guide"):
             if key in self.widgets:
                 try:
                     self.widgets[key].configure(wraplength=new_wrap)
                 except Exception:
                     pass
+
+    def _on_controls_configure(self, event) -> None:
+        """Update wraplength for labels inside the (narrower) controls panel."""
+        if not hasattr(self, "_controls_panel"):
+            return
+        if event.widget is not self._controls_panel:
+            return
+        # Account for card border + inner padding (about 40 px total).
+        new_wrap = max(180, event.width - 40)
+        if "key_note" in self.widgets:
+            try:
+                self.widgets["key_note"].configure(wraplength=new_wrap)
+            except Exception:
+                pass
 
     def _on_key_changed(self, *_) -> None:
         """Trace handler for key_var. Clears alert state if the user starts
@@ -1369,15 +1386,21 @@ class DecrypterApp:
     # UI construction
     # ==================================================================
     def _build_ui(self) -> None:
-        self.root.grid_columnconfigure(0, weight=1)
-        # Rows 0-10 are fixed-height; row 11 (log) expands.
-        for r in range(0, 11):
-            self.root.grid_rowconfigure(r, weight=0)
-        self.root.grid_rowconfigure(11, weight=1)
+        # ── Top-level grid: 2 columns (controls | log), 3 rows ───────
+        # Header & divider span both columns. Row 2 holds the controls
+        # panel (col 0) and the log frame (col 1) side-by-side.
+        self.root.grid_columnconfigure(0, weight=2, minsize=440)  # controls
+        self.root.grid_columnconfigure(1, weight=3, minsize=320)  # log
+        self.root.grid_rowconfigure(0, weight=0)  # header
+        self.root.grid_rowconfigure(1, weight=0)  # divider
+        self.root.grid_rowconfigure(2, weight=1)  # main row
 
-        # ── Header ───────────────────────────────────────────────────
+        PAD_GAP = 12  # gap between controls panel and log frame
+
+        # ── Header (spans both columns) ──────────────────────────────
         header = ctk.CTkFrame(self.root, fg_color="transparent", corner_radius=RADIUS_DIVIDER)
-        header.grid(row=0, column=0, sticky="ew", padx=PAD_X, pady=(22, 4))
+        header.grid(row=0, column=0, columnspan=2, sticky="ew",
+                    padx=PAD_X, pady=(22, 4))
         header.grid_columnconfigure(0, weight=1)
 
         title_row = ctk.CTkFrame(header, fg_color="transparent")
@@ -1394,7 +1417,7 @@ class DecrypterApp:
                 header, text="",
                 text_color=COLORS["text_tertiary"],
                 anchor="w", justify="left",
-                wraplength=540,
+                wraplength=900,  # initial; updated dynamically on resize
             ),
             "subtitle",
         )
@@ -1407,21 +1430,31 @@ class DecrypterApp:
                 header, text="",
                 text_color=COLORS["accent"],
                 anchor="w", justify="left",
-                wraplength=540,
+                wraplength=900,
             ),
             "note",
         )
         self.widgets["quick_guide"].grid(row=2, column=0, sticky="ew", pady=(8, 0))
 
-        # Divider
+        # Divider (spans both columns)
         ctk.CTkFrame(
             self.root, height=1, fg_color=COLORS["border"], corner_radius=RADIUS_DIVIDER
-        ).grid(row=1, column=0, sticky="ew", padx=PAD_X, pady=(10, 14))
+        ).grid(row=1, column=0, columnspan=2, sticky="ew",
+               padx=PAD_X, pady=(10, 14))
+
+        # ── Left column: controls panel ──────────────────────────────
+        controls = ctk.CTkFrame(self.root, fg_color="transparent")
+        controls.grid(row=2, column=0, sticky="nsew",
+                      padx=(PAD_X, PAD_GAP), pady=(0, 20))
+        controls.grid_columnconfigure(0, weight=1)
+        for r in range(0, 9):
+            controls.grid_rowconfigure(r, weight=0)
+        self._controls_panel = controls
 
         # ── Section 0: Settings ──────────────────────────────────────
-        self._section_label(row=2, translation_key="settings_section", padx=PAD_X)
+        self._section_label(parent=controls, row=0, translation_key="settings_section")
 
-        settings_card = self._card(row=3, padx=PAD_X)
+        settings_card = self._card(parent=controls, row=1)
         settings_row  = ctk.CTkFrame(settings_card, fg_color="transparent")
         settings_row.pack(fill="x", padx=16, pady=14)
         settings_row.grid_columnconfigure(0, weight=1)
@@ -1506,9 +1539,9 @@ class DecrypterApp:
         # users found it more discoverable next to the output folder.
 
         # ── Section 1: Source folder + key ───────────────────────────
-        self._section_label(row=4, translation_key="section_game", padx=PAD_X)
+        self._section_label(parent=controls, row=2, translation_key="section_game")
 
-        card1      = self._card(row=5, padx=PAD_X)
+        card1      = self._card(parent=controls, row=3)
         row_folder = ctk.CTkFrame(card1, fg_color="transparent")
         row_folder.pack(fill="x", padx=16, pady=(14, 8))
 
@@ -1594,9 +1627,9 @@ class DecrypterApp:
         self.widgets["key_note"].pack(anchor="w", fill="x", pady=(8, 0))
 
         # ── Section 2: Output folder ─────────────────────────────────
-        self._section_label(row=6, translation_key="section_output", padx=PAD_X)
+        self._section_label(parent=controls, row=4, translation_key="section_output")
 
-        card2   = self._card(row=7, padx=PAD_X)
+        card2   = self._card(parent=controls, row=5)
         row_out = ctk.CTkFrame(card2, fg_color="transparent")
         row_out.pack(fill="x", padx=16, pady=14)
 
@@ -1662,9 +1695,9 @@ class DecrypterApp:
         )
         self.widgets["auto_open_label"].pack(anchor="w")
 
-        # ── Run button ───────────────────────────────────────────────
+        # ── Run button (inside controls panel) ───────────────────────
         self.btn_run = ctk.CTkButton(
-            self.root, text="",
+            controls, text="",
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             text_color="#ffffff",
@@ -1672,36 +1705,34 @@ class DecrypterApp:
             command=self.start_processing,
         )
         self._register_font(self.btn_run, "button_main")
-        self.btn_run.grid(row=8, column=0, sticky="ew", padx=PAD_X, pady=(18, 0))
+        self.btn_run.grid(row=6, column=0, sticky="ew", pady=(18, 0))
 
         # ── Progress bar ─────────────────────────────────────────────
         self.progress_bar = ctk.CTkProgressBar(
-            self.root, mode="determinate",
+            controls, mode="determinate",
             fg_color=COLORS["surface_alt"],
             progress_color=COLORS["accent"],
             corner_radius=RADIUS_CONTROL,
             height=PROGRESS_BAR_HEIGHT,
         )
         self.progress_bar.set(0)
-        self.progress_bar.grid(row=9, column=0, sticky="ew", padx=PAD_X, pady=(8, 0))
+        self.progress_bar.grid(row=7, column=0, sticky="ew", pady=(8, 0))
 
         # ── Status label (below progress bar) ────────────────────────
-        # Doubles as a keyboard-shortcut hint when idle. Slightly stronger
-        # text colour than the previous text_tertiary so it's actually
-        # readable both as shortcuts hint and as live progress text.
+        # Doubles as a keyboard-shortcut hint when idle.
         self.widgets["status_label"] = self._register_font(
             ctk.CTkLabel(
-                self.root, text="",
+                controls, text="",
                 text_color=COLORS["text_secondary"],
                 anchor="w", height=STATUS_LABEL_HEIGHT,
             ),
             "note",
         )
         self.widgets["status_label"].grid(
-            row=10, column=0, sticky="ew", padx=PAD_X + 4, pady=(2, 0)
+            row=8, column=0, sticky="ew", padx=4, pady=(2, 0)
         )
 
-        # ── Log frame (expanding) ────────────────────────────────────
+        # ── Right column: log frame (full height of row 2) ───────────
         log_frame = ctk.CTkFrame(
             self.root,
             fg_color=COLORS["surface"],
@@ -1709,7 +1740,8 @@ class DecrypterApp:
             border_width=1,
             border_color=COLORS["border"],
         )
-        log_frame.grid(row=11, column=0, sticky="nsew", padx=PAD_X, pady=(8, 20))
+        log_frame.grid(row=2, column=1, sticky="nsew",
+                       padx=(PAD_GAP, PAD_X), pady=(0, 20))
         log_frame.grid_columnconfigure(0, weight=1)
         log_frame.grid_rowconfigure(1, weight=1)
 
@@ -1765,25 +1797,27 @@ class DecrypterApp:
     # ------------------------------------------------------------------
     # UI helpers
     # ------------------------------------------------------------------
-    def _section_label(self, *, row: int, translation_key: str, padx: int) -> None:
+    def _section_label(self, *, parent, row: int, translation_key: str) -> None:
+        """Create a small section label inside *parent* on the given grid row."""
         label = ctk.CTkLabel(
-            self.root, text="",
+            parent, text="",
             text_color=COLORS["text_tertiary"],
             anchor="w",
         )
         self._register_font(label, "section")
-        label.grid(row=row, column=0, sticky="ew", padx=padx + 4, pady=(14, 0))
+        label.grid(row=row, column=0, sticky="ew", padx=4, pady=(14, 0))
         self.widgets[translation_key] = label
 
-    def _card(self, *, row: int, padx: int) -> ctk.CTkFrame:
+    def _card(self, *, parent, row: int) -> ctk.CTkFrame:
+        """Create a card frame inside *parent* on the given grid row."""
         card = ctk.CTkFrame(
-            self.root,
+            parent,
             fg_color=COLORS["surface"],
             corner_radius=RADIUS_CARD,
             border_width=1,
             border_color=COLORS["border"],
         )
-        card.grid(row=row, column=0, sticky="ew", padx=padx, pady=(6, 0))
+        card.grid(row=row, column=0, sticky="ew", padx=0, pady=(6, 0))
         return card
 
 
