@@ -51,6 +51,7 @@ def _sanitize(data: dict) -> dict:
         "language":     language    if language    in VALID_LANGUAGES    else "ko",
         "appearance":   appearance  if appearance  in VALID_APPEARANCES  else "dark",
         "target_mode":  target_mode if target_mode in VALID_TARGET_MODES else "both",
+        "auto_open":    bool(data.get("auto_open", False)),
     }
 
 
@@ -97,10 +98,11 @@ def load_config_data() -> tuple[dict, Exception | None]:
 
 
 def save_config_data(
-    output_dir:   str = "",
-    language:     str = "ko",
-    appearance:   str = "dark",
-    target_mode:  str = "both",
+    output_dir:   str  = "",
+    language:     str  = "ko",
+    appearance:   str  = "dark",
+    target_mode:  str  = "both",
+    auto_open:    bool = False,
 ) -> tuple[bool, Exception | None]:
     """Persist only non-sensitive UI settings.
 
@@ -113,6 +115,7 @@ def save_config_data(
             "language":    language,
             "appearance":  appearance,
             "target_mode": target_mode,
+            "auto_open":   auto_open,
         }
     )
 

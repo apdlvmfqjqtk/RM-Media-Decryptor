@@ -11,6 +11,18 @@ Security policy:
     - Old config files containing a saved key are auto-purged on load.
     - Saved settings only contain non-sensitive UI preferences.
 
+Threading model:
+    All decryption work runs on a single daemon worker thread.
+    The worker's status updates (log, progress, status label) are
+    marshalled to the main Tk thread via ``root.after(0, ...)``.
+    A ``threading.Event`` is used as a cooperative cancellation signal.
+
+Keyboard shortcuts:
+    F5            -> Start decryption (Run)
+    Enter         -> Start decryption when key entry has focus
+    Escape        -> Cancel a running decryption
+    Ctrl+L        -> Clear log
+
 Designed for PyInstaller --onedir --windowed packaging.
 """
 
@@ -30,10 +42,11 @@ from lang import LANGUAGE_CODES_BY_LABEL, LANGUAGE_OPTIONS, TEXT
 from rpg_core import (
     EXT_MAP,
     KNOWN_UNSUPPORTED_EXT,
-    get_target_extensions,
     PLAIN_MEDIA_EXT,
+    SystemJsonScan,
     decrypt_asset,
     extract_key_from_system_json,
+    get_target_extensions,
     mask_key,
     unique_output_path,
     validate_key,
@@ -94,8 +107,6 @@ _gdi32.RemoveFontResourceExW.restype  = wintypes.BOOL
 
 _user32 = ctypes.WinDLL("user32", use_last_error=True)
 
-# Font files expected under assets/fonts/.
-# Family names are what tkinter font tuples reference.
 PRETENDARD_FAMILY    = "Pretendard"
 PRETENDARD_JP_FAMILY = "Pretendard JP"
 
@@ -110,7 +121,6 @@ FONT_FILES = [
     ("PretendardJP-Bold.ttf",    PRETENDARD_JP_FAMILY),
 ]
 
-# Conservative fallback families (Windows 10/11 ship these).
 FALLBACK_FAMILY_DEFAULT = "Segoe UI"
 FALLBACK_FAMILY_JP      = "Yu Gothic UI"
 
@@ -118,10 +128,10 @@ FALLBACK_FAMILY_JP      = "Yu Gothic UI"
 class FontLoader:
     """Loads bundled TTFs into the process via AddFontResourceExW."""
 
-    def __init__(self):
-        self._loaded_paths:  list[str] = []
-        self.has_pretendard:    bool   = False
-        self.has_pretendard_jp: bool   = False
+    def __init__(self) -> None:
+        self._loaded_paths:     list[str] = []
+        self.has_pretendard:    bool      = False
+        self.has_pretendard_jp: bool      = False
 
     def load(self) -> None:
         any_default = False
@@ -183,10 +193,6 @@ FONT_LOADER.load()
 
 # =====================================================================
 # 4. Centralized font role table
-#
-#    Each role maps to (size, weight). The family is resolved at runtime
-#    based on the UI language: KO/EN use Pretendard, JA uses Pretendard JP.
-#    Monospace roles use Consolas (HEX key field, log area).
 # =====================================================================
 FONT_ROLES = {
     "title":       (22, "bold"),
@@ -201,8 +207,6 @@ FONT_ROLES = {
     "note":        (11, "normal"),
 }
 
-# Monospace roles: key/HEX fields use Consolas.
-# Log roles use a CJK-safe font so Korean/Japanese text renders correctly.
 FONT_MONO_ROLES = {
     "mono":            ("Consolas",  11, "normal"),
     "mono_key":        ("Consolas",  12, "normal"),
@@ -236,10 +240,6 @@ COLORS = {
 # =====================================================================
 # 6. Geometry tokens (100 % DPI baseline)
 # =====================================================================
-# Microsoft-style rounded corners:
-#   Large containers / cards : 8 px
-#   Buttons, entries, menus  : 4 px
-#   Dividers / flush edges   : 0 px
 RADIUS_CARD    = 8
 RADIUS_CONTROL = 4
 RADIUS_BUTTON  = 4
@@ -251,6 +251,14 @@ RADIUS_DIVIDER = 0
 # =====================================================================
 # 7. App-level constants
 # =====================================================================
+PAD_X                  = 28
+WRAP_PADDING           = PAD_X * 2          # used to compute wraplength on resize
+PROGRESS_BAR_HEIGHT    = 8
+STATUS_LABEL_HEIGHT    = 18
+NOTIFY_DELAY_MS        = 0                  # delay before completion popup
+CLOSE_POLL_INTERVAL_MS = 100                # interval for waiting on cancel-then-close
+PROGRESS_LOG_BUCKET    = 5                  # log every N % progress
+
 TARGET_MODE_ORDER = ("both", "image", "audio")
 TARGET_MODE_TEXT_KEYS = {
     "both":  "target_both",
@@ -263,21 +271,36 @@ PLAIN_MEDIA_EXTS_BY_TARGET = {
     "audio": {".ogg", ".m4a"},
 }
 
+# Skip-only failure codes that should NOT count as a real failure.
+SKIP_REASONS = {
+    "too_small",
+    "already_png",
+    "already_ogg",
+    "already_m4a",
+    "not_encrypted",
+}
+
 
 # =====================================================================
 # 8. Main application
 # =====================================================================
 class DecrypterApp:
+    # Folder buttons that share the same translation key.
+    _WIDGETS_ALIAS = {
+        "folder_button_game":   "folder_button",
+        "folder_button_output": "folder_button",
+    }
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
-    def __init__(self, root: ctk.CTk):
+    def __init__(self, root: ctk.CTk) -> None:
         self.root = root
         self.root.title("RPG Decrypter")
         self.set_window_icon()
 
-        self.root.geometry("600x920")
-        self.root.minsize(400, 540)
+        self.root.geometry("600x940")
+        self.root.minsize(400, 560)
         self.root.resizable(True, True)
 
         # Runtime state
@@ -287,8 +310,11 @@ class DecrypterApp:
         self.is_processing       = False
         self.processed_files     = 0
         self.total_files         = 0
-        self._cancel_event       = threading.Event()
-        self._key_shown          = False  # key field hidden by default for security
+
+        # Threading state
+        self._cancel_event         = threading.Event()
+        self._closing_after_cancel = False
+        self._key_shown            = False  # key field hidden by default for security
 
         # Tk variables (key_var is in-memory only — never written to disk)
         self.key_var         = tk.StringVar()
@@ -297,15 +323,12 @@ class DecrypterApp:
         self.dark_mode_var   = tk.BooleanVar(value=True)
         self.language_var    = tk.StringVar(value=LANGUAGE_OPTIONS[self.current_lang])
         self.target_mode_var = tk.StringVar()
+        self.auto_open_var   = tk.BooleanVar(value=False)
 
         # Widget bookkeeping
-        # widgets[text_key]    -> widget that displays t(text_key)
-        # widgets_alias        -> widget name -> text_key (for shared labels)
-        # font_registry        -> [(widget, role)] for re-applying fonts on lang change
-        # placeholder_widgets  -> [(entry, text_key)]
-        self.widgets: dict[str, tk.Widget]             = {}
-        self.widgets_alias: dict[str, str]             = {}
-        self.font_registry: list[tuple[tk.Widget, str]] = []
+        self.widgets: dict[str, tk.Widget]                       = {}
+        self.widgets_alias: dict[str, str]                       = dict(self._WIDGETS_ALIAS)
+        self.font_registry: list[tuple[tk.Widget, str]]          = []
         self.placeholder_widgets: list[tuple[ctk.CTkEntry, str]] = []
 
         # Load persisted (non-sensitive) settings BEFORE building UI.
@@ -318,19 +341,18 @@ class DecrypterApp:
         self._build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
-        # Respond to window resize — update wraplength for long text labels.
+        # Reactive bindings (after _build_ui so widgets exist).
         self.root.bind("<Configure>", self._on_root_configure)
-
-        # Real-time key validation feedback (border colour).
         self.key_var.trace_add("write", self._on_key_changed)
-
-        # Enable / disable the "Open output folder" button reactively.
         self.output_dir_var.trace_add("write", self._on_output_dir_changed)
+
+        self._setup_keyboard_shortcuts()
+        self._setup_key_context_menu()
 
         # First language pass: no log entry, no config write.
         self.apply_language(log_change=False, save=False)
 
-        # Warm up the key border colour and Open button state.
+        # Warm up reactive widgets.
         self._on_key_changed()
         self._on_output_dir_changed()
 
@@ -338,7 +360,7 @@ class DecrypterApp:
             self.log(self.t("fonts_missing_note"))
 
     def set_window_icon(self) -> None:
-        """Apply the app icon in both source-run and PyInstaller modes."""
+        """Apply the app icon. Failures are logged to stderr (dev visibility)."""
         for rel in (
             os.path.join("assets", "myicon.ico"),
             os.path.join("assets", "icon", "myicon.ico"),
@@ -348,9 +370,10 @@ class DecrypterApp:
             if os.path.isfile(icon_path):
                 try:
                     self.root.iconbitmap(icon_path)
-                except Exception:
-                    pass
+                except Exception as e:
+                    sys.stderr.write(f"[icon] iconbitmap failed: {e}\n")
                 return
+        sys.stderr.write("[icon] No icon file found in any candidate path.\n")
 
     # ------------------------------------------------------------------
     # Translation helpers
@@ -372,8 +395,6 @@ class DecrypterApp:
         if role in FONT_MONO_ROLES:
             return FONT_MONO_ROLES[role]
         if role == "menu":
-            # The language menu shows all three language names simultaneously,
-            # so always use a CJK-safe family regardless of the current lang.
             family = FONT_LOADER.multilingual_family()
         else:
             family = FONT_LOADER.family_for(self.current_lang)
@@ -427,20 +448,19 @@ class DecrypterApp:
         if target_mode in TARGET_MODE_TEXT_KEYS:
             self.current_target_mode = target_mode
 
+        self.auto_open_var.set(bool(data.get("auto_open", False)))
+
     def save_config(self) -> bool:
         ok, error = save_config_data(
             output_dir=self.output_dir_var.get(),
             language=self.current_lang,
             appearance=self.current_appearance,
             target_mode=self.current_target_mode,
+            auto_open=self.auto_open_var.get(),
         )
         if not ok:
             self.log(self.t("config_saved_fail", error=error))
         return ok
-
-    def save_settings_action(self):
-        if self.save_config():
-            messagebox.showinfo(self.t("save_title"), self.t("save_done"))
 
     # ------------------------------------------------------------------
     # Language / appearance
@@ -493,13 +513,13 @@ class DecrypterApp:
         if save:
             self.save_config()
 
-    def on_language_changed(self, selected_label: str):
+    def on_language_changed(self, selected_label: str) -> None:
         lang_code = LANGUAGE_CODES_BY_LABEL.get(selected_label, "ko")
         self.current_lang = lang_code
         self.language_var.set(LANGUAGE_OPTIONS[lang_code])
         self.apply_language(log_change=True, save=True)
 
-    def on_dark_mode_toggle(self):
+    def on_dark_mode_toggle(self) -> None:
         if self.dark_mode_var.get():
             self.current_appearance = "dark"
             ctk.set_appearance_mode("dark")
@@ -531,7 +551,7 @@ class DecrypterApp:
             pass
         self.target_mode_var.set(self._target_mode_label(self.current_target_mode))
 
-    def on_target_mode_changed(self, selected_label: str):
+    def on_target_mode_changed(self, selected_label: str) -> None:
         for mode in TARGET_MODE_ORDER:
             if selected_label == self._target_mode_label(mode):
                 self.current_target_mode = mode
@@ -548,7 +568,7 @@ class DecrypterApp:
         """Dynamically update wraplength for long-text labels on resize."""
         if event.widget is not self.root:
             return
-        new_wrap = max(100, event.width - 56)
+        new_wrap = max(100, event.width - WRAP_PADDING)
         for key in ("app_subtitle", "key_note"):
             if key in self.widgets:
                 try:
@@ -581,22 +601,99 @@ class DecrypterApp:
         except Exception:
             pass
 
+    def _set_status(self, text: str) -> None:
+        """Update the status label below the progress bar."""
+        if "status_label" in self.widgets:
+            try:
+                self.widgets["status_label"].configure(text=text)
+            except Exception:
+                pass
+
+    # ------------------------------------------------------------------
+    # Keyboard shortcuts
+    # ------------------------------------------------------------------
+    def _setup_keyboard_shortcuts(self) -> None:
+        """Bind global keyboard shortcuts."""
+        self.root.bind("<F5>",          self._handle_run_shortcut)
+        self.root.bind("<Escape>",      self._handle_cancel_shortcut)
+        self.root.bind("<Control-l>",   self._handle_clear_log_shortcut)
+        self.root.bind("<Control-L>",   self._handle_clear_log_shortcut)
+
+        # Enter on the key entry triggers Run for quick keyboard-only flow.
+        if hasattr(self, "entry_key"):
+            self.entry_key.bind("<Return>", self._handle_run_shortcut)
+
+    def _handle_run_shortcut(self, event=None) -> str:
+        if not self.is_processing:
+            self.start_processing()
+        return "break"
+
+    def _handle_cancel_shortcut(self, event=None) -> str:
+        if self.is_processing:
+            self.cancel_processing()
+        return "break"
+
+    def _handle_clear_log_shortcut(self, event=None) -> str:
+        self.clear_log()
+        return "break"
+
+    # ------------------------------------------------------------------
+    # Right-click context menu on key entry (Cut / Copy / Paste)
+    # ------------------------------------------------------------------
+    def _setup_key_context_menu(self) -> None:
+        if not hasattr(self, "entry_key"):
+            return
+        # Use plain tk.Menu — CTk has no built-in context menu primitive.
+        self._key_context_menu = tk.Menu(self.entry_key, tearoff=0)
+        self._key_context_menu.add_command(label="", command=self._ctx_cut)
+        self._key_context_menu.add_command(label="", command=self._ctx_copy)
+        self._key_context_menu.add_command(label="", command=self._ctx_paste)
+        self.entry_key.bind("<Button-3>", self._show_key_context_menu)
+
+    def _show_key_context_menu(self, event) -> None:
+        # Refresh labels so language changes are reflected immediately.
+        self._key_context_menu.entryconfigure(0, label=self.t("ctx_cut"))
+        self._key_context_menu.entryconfigure(1, label=self.t("ctx_copy"))
+        self._key_context_menu.entryconfigure(2, label=self.t("ctx_paste"))
+        try:
+            self._key_context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self._key_context_menu.grab_release()
+
+    def _ctx_cut(self) -> None:
+        try:
+            self.entry_key.event_generate("<<Cut>>")
+        except Exception:
+            pass
+
+    def _ctx_copy(self) -> None:
+        try:
+            self.entry_key.event_generate("<<Copy>>")
+        except Exception:
+            pass
+
+    def _ctx_paste(self) -> None:
+        try:
+            self.entry_key.event_generate("<<Paste>>")
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
     # Folder selection / key auto-detect
     # ------------------------------------------------------------------
-    def select_output_folder(self):
+    def select_output_folder(self) -> None:
         folder = filedialog.askdirectory(title=self.t("select_output_dialog"))
         if folder:
             self.output_dir_var.set(folder)
             self.save_config()
 
-    def open_output_folder(self):
+    def open_output_folder(self) -> None:
         """Open the output folder in Windows Explorer."""
         folder = self.output_dir_var.get().strip()
         if folder and os.path.isdir(folder):
             os.startfile(folder)
 
-    def select_game_folder(self):
+    def select_game_folder(self) -> None:
         selected_dir = filedialog.askdirectory(title=self.t("select_game_dialog"))
         if not selected_dir:
             return
@@ -609,17 +706,26 @@ class DecrypterApp:
         )
         self.input_dir_var.set(input_dir)
 
-        key, attempts = extract_key_from_system_json(selected_dir)
+        scan: SystemJsonScan = extract_key_from_system_json(selected_dir)
 
         self.log(self.t("key_search_header"))
-        for path, status_key, extra in attempts:
+        for path, status_key, extra in scan.attempts:
             status_text = self._format_key_status(status_key, extra)
             self.log(self.t("key_search_path_check", path=path, status=status_text))
 
-        if key:
-            self.key_var.set(key)
-            self.log(self.t("key_found", key=mask_key(key)))
+        if scan.key:
+            self.key_var.set(scan.key)
+            self.log(self.t("key_found", key=mask_key(scan.key)))
+        elif scan.found_system_json:
+            # System.json exists but no usable key.
+            if not scan.has_encrypted_images and not scan.has_encrypted_audio:
+                # Game is genuinely unencrypted — no decryption needed.
+                self.log(self.t("unencrypted_game"))
+            else:
+                # Game IS encrypted but the key is missing or malformed.
+                self.log(self.t("encrypted_no_key"))
         else:
+            # No System.json found at all.
             self.log(self.t("key_search_failed"))
 
         self.save_config()
@@ -658,7 +764,7 @@ class DecrypterApp:
     # ------------------------------------------------------------------
     # Key visibility toggle
     # ------------------------------------------------------------------
-    def toggle_key_visibility(self):
+    def toggle_key_visibility(self) -> None:
         self._key_shown = not self._key_shown
         show_char = "" if self._key_shown else "*"
         try:
@@ -673,7 +779,7 @@ class DecrypterApp:
     # ------------------------------------------------------------------
     # Log helpers
     # ------------------------------------------------------------------
-    def copy_log(self):
+    def copy_log(self) -> None:
         """Copy the entire log content to the clipboard."""
         try:
             self.log_area.configure(state="normal")
@@ -684,7 +790,7 @@ class DecrypterApp:
         except Exception:
             pass
 
-    def clear_log(self):
+    def clear_log(self) -> None:
         """Erase all text from the log area."""
         try:
             self.log_area.configure(state="normal")
@@ -693,10 +799,22 @@ class DecrypterApp:
         except Exception:
             pass
 
+    def log(self, message: str) -> None:
+        self.root.after(0, lambda: self._append_log(message))
+
+    def _append_log(self, message: str) -> None:
+        try:
+            self.log_area.configure(state="normal")
+            self.log_area.insert(tk.END, message + "\n")
+            self.log_area.see(tk.END)
+            self.log_area.configure(state="disabled")
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
     # Run / cancel / worker thread
     # ------------------------------------------------------------------
-    def start_processing(self):
+    def start_processing(self) -> None:
         key        = self.key_var.get().strip()
         input_dir  = self.input_dir_var.get().strip()
         output_dir = self.output_dir_var.get().strip()
@@ -731,6 +849,7 @@ class DecrypterApp:
         # Switch progress bar to indeterminate (scanning phase).
         self.progress_bar.configure(mode="indeterminate")
         self.progress_bar.start()
+        self._set_status(self.t("scan_status"))
 
         self.save_config()
 
@@ -741,7 +860,7 @@ class DecrypterApp:
         )
         worker.start()
 
-    def cancel_processing(self):
+    def cancel_processing(self) -> None:
         """Signal the worker thread to stop after the current file."""
         self._cancel_event.set()
         try:
@@ -754,34 +873,14 @@ class DecrypterApp:
 
     def process_files(
         self, key: str, input_dir: str, output_dir: str, target_mode: str
-    ):
+    ) -> None:
+        """Worker entry point: scan, decrypt, summarise."""
         self.log(self.t("start_log"))
-        self.log(self.t("scan_log"))
 
         try:
-            target_exts      = get_target_extensions(target_mode)
-            plain_media_exts = PLAIN_MEDIA_EXTS_BY_TARGET.get(
-                target_mode, PLAIN_MEDIA_EXTS_BY_TARGET["both"]
+            target_files, unsupported_count, plain_media_counts = self._scan_files(
+                input_dir, target_mode
             )
-            target_files       = []
-            unsupported_count  = 0
-            plain_media_counts = {".png": 0, ".ogg": 0, ".m4a": 0}
-
-            for root_dir, _, files in os.walk(input_dir):
-                for filename in files:
-                    ext       = os.path.splitext(filename)[1].lower()
-                    full_path = os.path.join(root_dir, filename)
-
-                    if ext in EXT_MAP:
-                        if ext not in target_exts:
-                            continue
-                        if os.path.islink(full_path):
-                            continue
-                        target_files.append((root_dir, filename, ext))
-                    elif ext in KNOWN_UNSUPPORTED_EXT:
-                        unsupported_count += 1
-                    elif ext in PLAIN_MEDIA_EXT and ext in plain_media_exts:
-                        plain_media_counts[ext] += 1
 
             if any(plain_media_counts.values()):
                 self.log(
@@ -795,7 +894,7 @@ class DecrypterApp:
 
             self.total_files = len(target_files)
 
-            # Switch progress bar to determinate mode now that we know the total.
+            # Switch progress bar to determinate now that we know the total.
             self.root.after(0, self._end_scan_phase)
 
             if self.total_files == 0:
@@ -807,118 +906,14 @@ class DecrypterApp:
                 self.t("progress_log", percent=0, processed=0, total=self.total_files)
             )
 
-            success_count = 0
-            fail_count    = 0
-            skip_count    = unsupported_count
-            failed_files: list[tuple[str, str]] = []
-            last_logged_bucket = 0
+            stats = self._run_decrypt_loop(target_files, key, input_dir, output_dir)
 
-            # Parse the hex key once; pass raw bytes to avoid per-file conversion.
-            key_bytes = bytes.fromhex(key)
-
-            # Resolve the game name once — it is constant for the entire batch.
-            # If the input folder is named "www", the real game name is one level up.
-            _base_folder = os.path.basename(input_dir)
-            game_name = (
-                os.path.basename(os.path.dirname(input_dir))
-                if _base_folder == "www"
-                else _base_folder
-            )
-
-            for root_dir, filename, ext in target_files:
-                # Check for user-requested cancellation before each file.
-                if self._cancel_event.is_set():
-                    self.log(self.t("cancel_log"))
-                    break
-
-                input_path    = os.path.join(root_dir, filename)
-                relative_dir  = os.path.relpath(root_dir, input_dir)
-
-                # Prefix exact "img" / "audio" path components with the game name.
-                # pathlib.PurePath splits on the OS separator so only whole folder
-                # names are matched — substrings inside other names are left intact
-                # (e.g. "imagine", "audiobgm" are not affected).
-                parts     = pathlib.PurePath(relative_dir).parts
-                new_parts = tuple(
-                    f"{game_name}-{p}" if p in ("img", "audio") else p
-                    for p in parts
-                )
-                new_relative_dir = os.path.join(*new_parts) if new_parts else relative_dir
-
-                target_dir = os.path.join(output_dir, new_relative_dir)
-                os.makedirs(target_dir, exist_ok=True)
-
-                stem, _       = os.path.splitext(filename)
-                desired_output = os.path.join(target_dir, stem + EXT_MAP[ext])
-                output_path    = unique_output_path(desired_output)
-
-                ok, reason = decrypt_asset(input_path, output_path, key_bytes)
-
-                self.processed_files += 1
-
-                if ok:
-                    success_count += 1
-                else:
-                    if reason in (
-                        "too_small",
-                        "already_png",
-                        "already_ogg",
-                        "already_m4a",
-                        "not_encrypted",
-                    ):
-                        skip_count += 1
-                    else:
-                        fail_count += 1
-                        failed_files.append(
-                            (input_path, self._format_decrypt_error(reason))
-                        )
-
-                percent         = int((self.processed_files / self.total_files) * 100)
-                progress_bucket = (percent // 5) * 5
-                should_log      = (
-                    progress_bucket > last_logged_bucket
-                    or self.processed_files == self.total_files
-                )
-
-                if should_log:
-                    last_logged_bucket = progress_bucket
-                    self.log(
-                        self.t(
-                            "progress_log",
-                            percent=percent,
-                            processed=self.processed_files,
-                            total=self.total_files,
-                        )
-                    )
-
-                # Update the progress bar from the main thread.
-                pct = self.processed_files / self.total_files
-                self.root.after(0, lambda v=pct: self.progress_bar.set(v))
-
-            # Only show summary and notification when not cancelled.
-            if not self._cancel_event.is_set():
-                self.log(
-                    self.t(
-                        "done_log",
-                        success=success_count,
-                        failed=fail_count,
-                        skipped=skip_count,
-                        total=self.total_files,
-                    )
-                )
-                if fail_count == 0:
-                    self.log(self.t("done_all_success"))
-                else:
-                    self.log(self.t("done_some_failed"))
-                    self.log(self.t("failed_files_header"))
-                    for path, reason in failed_files:
-                        self.log(self.t("file_failed", path=path, reason=reason))
-
-                # Notify the user that the job finished.
+            # Summary + notification only when not cancelled mid-loop.
+            if not stats["cancelled_in_loop"]:
+                self._log_summary(stats, unsupported_count)
                 self.root.after(
-                    200,
-                    lambda s=success_count, f=fail_count:
-                        self._show_completion_notification(s, f),
+                    NOTIFY_DELAY_MS,
+                    lambda s=stats: self._show_completion_notification(s),
                 )
 
         except Exception as e:
@@ -926,6 +921,170 @@ class DecrypterApp:
 
         finally:
             self.finish_processing()
+
+    def _scan_files(
+        self, input_dir: str, target_mode: str
+    ) -> tuple[list[tuple[str, str, str]], int, dict[str, int]]:
+        """Walk *input_dir* and bucket files by category."""
+        self.log(self.t("scan_log"))
+
+        target_exts      = get_target_extensions(target_mode)
+        plain_media_exts = PLAIN_MEDIA_EXTS_BY_TARGET.get(
+            target_mode, PLAIN_MEDIA_EXTS_BY_TARGET["both"]
+        )
+
+        target_files: list[tuple[str, str, str]] = []
+        unsupported_count                        = 0
+        plain_media_counts                       = {".png": 0, ".ogg": 0, ".m4a": 0}
+
+        for root_dir, _, files in os.walk(input_dir):
+            for filename in files:
+                ext       = os.path.splitext(filename)[1].lower()
+                full_path = os.path.join(root_dir, filename)
+
+                if ext in EXT_MAP:
+                    if ext not in target_exts:
+                        continue
+                    if os.path.islink(full_path):
+                        continue
+                    target_files.append((root_dir, filename, ext))
+                elif ext in KNOWN_UNSUPPORTED_EXT:
+                    unsupported_count += 1
+                elif ext in PLAIN_MEDIA_EXT and ext in plain_media_exts:
+                    plain_media_counts[ext] += 1
+
+        return target_files, unsupported_count, plain_media_counts
+
+    def _run_decrypt_loop(
+        self,
+        target_files: list[tuple[str, str, str]],
+        key: str,
+        input_dir: str,
+        output_dir: str,
+    ) -> dict:
+        """Decrypt each file in *target_files*. Returns aggregated stats."""
+        success_count = 0
+        fail_count    = 0
+        skip_count    = 0
+        failed_files: list[tuple[str, str]] = []
+        last_logged_bucket = 0
+        cancelled_in_loop  = False
+
+        # Parse the hex key once; pass raw bytes to avoid per-file conversion.
+        key_bytes = bytes.fromhex(key)
+
+        # Resolve the game name once — constant for the entire batch.
+        # If the input folder is named "www", the real game name is one level up.
+        _base_folder = os.path.basename(input_dir)
+        game_name = (
+            os.path.basename(os.path.dirname(input_dir))
+            if _base_folder == "www"
+            else _base_folder
+        )
+
+        total = len(target_files)
+
+        for root_dir, filename, ext in target_files:
+            # Cancellation check at the top of each iteration.
+            if self._cancel_event.is_set():
+                cancelled_in_loop = True
+                self.log(self.t("cancel_log"))
+                break
+
+            input_path   = os.path.join(root_dir, filename)
+            relative_dir = os.path.relpath(root_dir, input_dir)
+
+            # Prefix exact "img" / "audio" path components with the game name.
+            # pathlib.PurePath splits on the OS separator so only whole folder
+            # names are matched (e.g. "imagine", "audiobgm" are unaffected).
+            parts     = pathlib.PurePath(relative_dir).parts
+            new_parts = tuple(
+                f"{game_name}-{p}" if p in ("img", "audio") else p
+                for p in parts
+            )
+            new_relative_dir = os.path.join(*new_parts) if new_parts else relative_dir
+
+            target_dir = os.path.join(output_dir, new_relative_dir)
+            os.makedirs(target_dir, exist_ok=True)
+
+            stem, _        = os.path.splitext(filename)
+            desired_output = os.path.join(target_dir, stem + EXT_MAP[ext])
+            output_path    = unique_output_path(desired_output)
+
+            ok, reason = decrypt_asset(input_path, output_path, key_bytes)
+
+            self.processed_files += 1
+
+            if ok:
+                success_count += 1
+            elif reason in SKIP_REASONS:
+                skip_count += 1
+            else:
+                fail_count += 1
+                failed_files.append((input_path, self._format_decrypt_error(reason)))
+
+            # Progress logging at PROGRESS_LOG_BUCKET % intervals.
+            percent         = int((self.processed_files / total) * 100)
+            progress_bucket = (percent // PROGRESS_LOG_BUCKET) * PROGRESS_LOG_BUCKET
+            should_log      = (
+                progress_bucket > last_logged_bucket
+                or self.processed_files == total
+            )
+            if should_log:
+                last_logged_bucket = progress_bucket
+                self.log(
+                    self.t(
+                        "progress_log",
+                        percent=percent,
+                        processed=self.processed_files,
+                        total=total,
+                    )
+                )
+
+            # Update progress bar + status label on the main thread.
+            pct       = self.processed_files / total
+            processed = self.processed_files
+            self.root.after(
+                0,
+                lambda v=pct, p=processed, t=total, pc=percent:
+                    self._update_progress(v, p, t, pc),
+            )
+
+        return {
+            "success_count":      success_count,
+            "fail_count":         fail_count,
+            "skip_count":         skip_count,
+            "failed_files":       failed_files,
+            "cancelled_in_loop":  cancelled_in_loop,
+            "total":              total,
+        }
+
+    def _log_summary(self, stats: dict, unsupported_count: int) -> None:
+        self.log(
+            self.t(
+                "done_log",
+                success=stats["success_count"],
+                failed=stats["fail_count"],
+                skipped=stats["skip_count"] + unsupported_count,
+                total=stats["total"],
+            )
+        )
+        if stats["fail_count"] == 0:
+            self.log(self.t("done_all_success"))
+        else:
+            self.log(self.t("done_some_failed"))
+            self.log(self.t("failed_files_header"))
+            for path, reason in stats["failed_files"]:
+                self.log(self.t("file_failed", path=path, reason=reason))
+
+    def _update_progress(self, value: float, processed: int, total: int, percent: int) -> None:
+        try:
+            self.progress_bar.set(value)
+        except Exception:
+            pass
+        self._set_status(
+            self.t("decrypt_status", processed=processed, total=total, percent=percent)
+        )
 
     def _end_scan_phase(self) -> None:
         """Switch the progress bar from indeterminate (scan) to determinate."""
@@ -936,32 +1095,41 @@ class DecrypterApp:
         except Exception:
             pass
 
-    def _show_completion_notification(self, success_count: int, fail_count: int) -> None:
-        """Ring the bell and show a summary dialog."""
+    def _show_completion_notification(self, stats: dict) -> None:
+        """Ring the bell, show a summary dialog, and auto-open if enabled.
+
+        The messagebox is modal, so by the time it returns the user has
+        dismissed it — we then optionally open the output folder.
+        """
         self.root.bell()
         self.root.lift()
-        if fail_count == 0:
+
+        if stats["fail_count"] == 0:
             messagebox.showinfo(
                 self.t("done_title"),
-                self.t("done_success_msg", count=success_count),
+                self.t("done_success_msg", count=stats["success_count"]),
             )
         else:
             messagebox.showwarning(
                 self.t("warning_title"),
-                self.t("done_failed_msg", failed=fail_count),
+                self.t("done_failed_msg", failed=stats["fail_count"]),
             )
 
-    def finish_processing(self):
-        def _reset():
+        if self.auto_open_var.get():
+            self.open_output_folder()
+
+    def finish_processing(self) -> None:
+        def _reset() -> None:
+            cancelled = self._cancel_event.is_set()
             self.is_processing = False
-            # Stop any remaining indeterminate animation and reset bar.
+
             try:
                 self.progress_bar.stop()
                 self.progress_bar.configure(mode="determinate")
                 self.progress_bar.set(0)
             except Exception:
                 pass
-            # Restore run button.
+
             self.btn_run.configure(
                 state="normal",
                 text=self.t("run_button"),
@@ -970,32 +1138,40 @@ class DecrypterApp:
                 command=self.start_processing,
             )
 
+            self._set_status(self.t("cancel_status") if cancelled else "")
+
+            # If a close-after-cancel was requested, the polling loop will
+            # detect that processing finished and destroy the window.
+
         self.root.after(0, _reset)
-
-    # ------------------------------------------------------------------
-    # Logging (always marshalled to the main thread)
-    # ------------------------------------------------------------------
-    def log(self, message: str):
-        self.root.after(0, lambda: self._append_log(message))
-
-    def _append_log(self, message: str):
-        try:
-            self.log_area.configure(state="normal")
-            self.log_area.insert(tk.END, message + "\n")
-            self.log_area.see(tk.END)
-            self.log_area.configure(state="disabled")
-        except Exception:
-            pass
 
     # ------------------------------------------------------------------
     # Window close
     # ------------------------------------------------------------------
-    def on_close(self):
+    def on_close(self) -> None:
         if self.is_processing:
-            messagebox.showwarning(
-                self.t("warning_title"), self.t("close_while_processing")
+            answer = messagebox.askyesno(
+                self.t("close_confirm_title"),
+                self.t("close_confirm_msg"),
             )
+            if not answer:
+                return
+            # User confirmed: cancel and wait for the worker to stop.
+            self.cancel_processing()
+            self._closing_after_cancel = True
+            self.root.after(CLOSE_POLL_INTERVAL_MS, self._poll_for_close)
             return
+
+        self._destroy_window()
+
+    def _poll_for_close(self) -> None:
+        """Poll until the worker has finished, then destroy the window."""
+        if self.is_processing:
+            self.root.after(CLOSE_POLL_INTERVAL_MS, self._poll_for_close)
+            return
+        self._destroy_window()
+
+    def _destroy_window(self) -> None:
         try:
             FONT_LOADER.unload()
         except Exception:
@@ -1005,14 +1181,12 @@ class DecrypterApp:
     # ==================================================================
     # UI construction
     # ==================================================================
-    def _build_ui(self):
+    def _build_ui(self) -> None:
         self.root.grid_columnconfigure(0, weight=1)
-        # Rows 0-9 are fixed-height; row 10 (log) expands to fill remaining space.
-        for r in range(0, 10):
+        # Rows 0-10 are fixed-height; row 11 (log) expands.
+        for r in range(0, 11):
             self.root.grid_rowconfigure(r, weight=0)
-        self.root.grid_rowconfigure(10, weight=1)
-
-        PAD_X = 28
+        self.root.grid_rowconfigure(11, weight=1)
 
         # ── Header ───────────────────────────────────────────────────
         header = ctk.CTkFrame(self.root, fg_color="transparent", corner_radius=RADIUS_DIVIDER)
@@ -1030,11 +1204,9 @@ class DecrypterApp:
 
         self.widgets["app_subtitle"] = self._register_font(
             ctk.CTkLabel(
-                header,
-                text="",
+                header, text="",
                 text_color=COLORS["text_tertiary"],
-                anchor="w",
-                justify="left",
+                anchor="w", justify="left",
                 wraplength=540,
             ),
             "subtitle",
@@ -1065,8 +1237,7 @@ class DecrypterApp:
         self.widgets["appearance_label"].pack(anchor="w", pady=(0, 6))
         self.widgets["dark_mode"] = self._register_font(
             ctk.CTkSwitch(
-                mode_box,
-                text="",
+                mode_box, text="",
                 variable=self.dark_mode_var,
                 command=self.on_dark_mode_toggle,
                 button_color=COLORS["accent"],
@@ -1102,13 +1273,12 @@ class DecrypterApp:
             corner_radius=RADIUS_MENU,
             height=36,
         )
-        # _register_font handles setting font= and registers for language refresh.
         self._register_font(self.language_menu, "menu")
         self.language_menu.pack(fill="x")
 
         # Target mode
         target_box = ctk.CTkFrame(settings_card, fg_color="transparent")
-        target_box.pack(fill="x", padx=16, pady=(0, 14))
+        target_box.pack(fill="x", padx=16, pady=(0, 8))
         self.widgets["target_label"] = self._register_font(
             ctk.CTkLabel(target_box, text="", text_color=COLORS["text_tertiary"], anchor="w"),
             "label_bold",
@@ -1133,6 +1303,25 @@ class DecrypterApp:
         self._register_font(self.target_mode_menu, "menu")
         self.target_mode_menu.pack(fill="x")
 
+        # Auto-open output folder when done (checkbox)
+        auto_open_box = ctk.CTkFrame(settings_card, fg_color="transparent")
+        auto_open_box.pack(fill="x", padx=16, pady=(0, 14))
+        self.widgets["auto_open_label"] = self._register_font(
+            ctk.CTkCheckBox(
+                auto_open_box, text="",
+                variable=self.auto_open_var,
+                command=self.save_config,
+                fg_color=COLORS["accent"],
+                hover_color=COLORS["accent_hover"],
+                border_color=COLORS["border"],
+                text_color=COLORS["text_secondary"],
+                checkmark_color="#ffffff",
+                corner_radius=RADIUS_CONTROL,
+            ),
+            "switch",
+        )
+        self.widgets["auto_open_label"].pack(anchor="w")
+
         # ── Section 1: Source folder + key ───────────────────────────
         self._section_label(row=4, translation_key="section_game", padx=PAD_X)
 
@@ -1140,18 +1329,15 @@ class DecrypterApp:
         row_folder = ctk.CTkFrame(card1, fg_color="transparent")
         row_folder.pack(fill="x", padx=16, pady=(14, 8))
 
-        # Pack order: right-side button first so expand= fills the remainder.
+        # Pack right-side button first so expand= fills the remainder.
         self.widgets["folder_button_game"] = ctk.CTkButton(
-            row_folder,
-            text="",
+            row_folder, text="",
             fg_color=COLORS["surface_alt"],
             hover_color=COLORS["border"],
             text_color=COLORS["text_primary"],
-            border_color=COLORS["border"],
-            border_width=1,
+            border_color=COLORS["border"], border_width=1,
             corner_radius=RADIUS_CONTROL,
-            height=36,
-            width=110,
+            height=36, width=110,
             command=self.select_game_folder,
         )
         self._register_font(self.widgets["folder_button_game"], "button_sub")
@@ -1160,13 +1346,11 @@ class DecrypterApp:
         self.entry_input = ctk.CTkEntry(
             row_folder,
             textvariable=self.input_dir_var,
-            state="readonly",
-            placeholder_text="",
+            state="readonly", placeholder_text="",
             fg_color=COLORS["surface_alt"],
             border_color=COLORS["border"],
             text_color=COLORS["text_secondary"],
-            corner_radius=RADIUS_CONTROL,
-            height=36,
+            corner_radius=RADIUS_CONTROL, height=36,
         )
         self._register_font(self.entry_input, "label")
         self.entry_input.pack(side="left", fill="x", expand=True, padx=(0, 10))
@@ -1187,49 +1371,29 @@ class DecrypterApp:
         row_key_inner = ctk.CTkFrame(row_key, fg_color="transparent")
         row_key_inner.pack(fill="x")
 
-        # Right-side buttons first.
-        self.widgets["save_button"] = ctk.CTkButton(
-            row_key_inner,
-            text="",
-            fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"],
-            text_color="#ffffff",
-            corner_radius=RADIUS_CONTROL,
-            height=36,
-            width=120,
-            command=self.save_settings_action,
-        )
-        self._register_font(self.widgets["save_button"], "button_sub")
-        self.widgets["save_button"].pack(side="right")
-
-        # Key show / hide toggle.
+        # Show / Hide toggle (right side, packed first).
         self.btn_toggle_key = ctk.CTkButton(
-            row_key_inner,
-            text="",  # set by apply_language
+            row_key_inner, text="",
             fg_color=COLORS["surface_alt"],
             hover_color=COLORS["border"],
             text_color=COLORS["text_primary"],
-            border_color=COLORS["border"],
-            border_width=1,
+            border_color=COLORS["border"], border_width=1,
             corner_radius=RADIUS_CONTROL,
-            height=36,
-            width=80,
+            height=36, width=90,
             command=self.toggle_key_visibility,
         )
         self._register_font(self.btn_toggle_key, "button_sub")
-        self.btn_toggle_key.pack(side="right", padx=(0, 8))
+        self.btn_toggle_key.pack(side="right")
 
         # Key entry (hidden by default — show="*").
         self.entry_key = ctk.CTkEntry(
             row_key_inner,
             textvariable=self.key_var,
-            show="*",
-            placeholder_text="",
+            show="*", placeholder_text="",
             fg_color=COLORS["surface_alt"],
             border_color=COLORS["accent"],
             text_color=COLORS["success"],
-            corner_radius=RADIUS_CONTROL,
-            height=36,
+            corner_radius=RADIUS_CONTROL, height=36,
         )
         self.entry_key.configure(font=self._font("mono_key"))
         self.entry_key.pack(side="left", fill="x", expand=True, padx=(0, 10))
@@ -1237,11 +1401,9 @@ class DecrypterApp:
 
         self.widgets["key_note"] = self._register_font(
             ctk.CTkLabel(
-                row_key,
-                text="",
+                row_key, text="",
                 text_color=COLORS["text_tertiary"],
-                anchor="w",
-                justify="left",
+                anchor="w", justify="left",
                 wraplength=540,
             ),
             "note",
@@ -1255,36 +1417,29 @@ class DecrypterApp:
         row_out = ctk.CTkFrame(card2, fg_color="transparent")
         row_out.pack(fill="x", padx=16, pady=14)
 
-        # Right-side buttons first.
         self.widgets["folder_button_output"] = ctk.CTkButton(
-            row_out,
-            text="",
+            row_out, text="",
             fg_color=COLORS["surface_alt"],
             hover_color=COLORS["border"],
             text_color=COLORS["text_primary"],
-            border_color=COLORS["border"],
-            border_width=1,
+            border_color=COLORS["border"], border_width=1,
             corner_radius=RADIUS_CONTROL,
-            height=36,
-            width=110,
+            height=36, width=110,
             command=self.select_output_folder,
         )
         self._register_font(self.widgets["folder_button_output"], "button_sub")
         self.widgets["folder_button_output"].pack(side="right")
 
-        # "Open output folder" button — disabled until a valid folder is set.
+        # "Open" button — disabled until output_dir is a valid folder.
         self.btn_open_output = ctk.CTkButton(
-            row_out,
-            text="",
+            row_out, text="",
             state="disabled",
             fg_color=COLORS["surface_alt"],
             hover_color=COLORS["border"],
             text_color=COLORS["text_primary"],
-            border_color=COLORS["border"],
-            border_width=1,
+            border_color=COLORS["border"], border_width=1,
             corner_radius=RADIUS_CONTROL,
-            height=36,
-            width=80,
+            height=36, width=80,
             command=self.open_output_folder,
         )
         self.widgets["open_output"] = self.btn_open_output
@@ -1294,13 +1449,11 @@ class DecrypterApp:
         self.entry_output = ctk.CTkEntry(
             row_out,
             textvariable=self.output_dir_var,
-            state="readonly",
-            placeholder_text="",
+            state="readonly", placeholder_text="",
             fg_color=COLORS["surface_alt"],
             border_color=COLORS["border"],
             text_color=COLORS["text_secondary"],
-            corner_radius=RADIUS_CONTROL,
-            height=36,
+            corner_radius=RADIUS_CONTROL, height=36,
         )
         self._register_font(self.entry_output, "label")
         self.entry_output.pack(side="left", fill="x", expand=True, padx=(0, 10))
@@ -1308,13 +1461,11 @@ class DecrypterApp:
 
         # ── Run button ───────────────────────────────────────────────
         self.btn_run = ctk.CTkButton(
-            self.root,
-            text="",
+            self.root, text="",
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             text_color="#ffffff",
-            corner_radius=RADIUS_BUTTON,
-            height=54,
+            corner_radius=RADIUS_BUTTON, height=54,
             command=self.start_processing,
         )
         self._register_font(self.btn_run, "button_main")
@@ -1322,15 +1473,27 @@ class DecrypterApp:
 
         # ── Progress bar ─────────────────────────────────────────────
         self.progress_bar = ctk.CTkProgressBar(
-            self.root,
-            mode="determinate",
+            self.root, mode="determinate",
             fg_color=COLORS["surface_alt"],
             progress_color=COLORS["accent"],
             corner_radius=RADIUS_CONTROL,
-            height=6,
+            height=PROGRESS_BAR_HEIGHT,
         )
         self.progress_bar.set(0)
         self.progress_bar.grid(row=9, column=0, sticky="ew", padx=PAD_X, pady=(8, 0))
+
+        # ── Status label (small, below progress bar) ─────────────────
+        self.widgets["status_label"] = self._register_font(
+            ctk.CTkLabel(
+                self.root, text="",
+                text_color=COLORS["text_tertiary"],
+                anchor="w", height=STATUS_LABEL_HEIGHT,
+            ),
+            "note",
+        )
+        self.widgets["status_label"].grid(
+            row=10, column=0, sticky="ew", padx=PAD_X + 4, pady=(2, 0)
+        )
 
         # ── Log frame (expanding) ────────────────────────────────────
         log_frame = ctk.CTkFrame(
@@ -1340,7 +1503,7 @@ class DecrypterApp:
             border_width=1,
             border_color=COLORS["border"],
         )
-        log_frame.grid(row=10, column=0, sticky="nsew", padx=PAD_X, pady=(14, 20))
+        log_frame.grid(row=11, column=0, sticky="nsew", padx=PAD_X, pady=(8, 20))
         log_frame.grid_columnconfigure(0, weight=1)
         log_frame.grid_rowconfigure(1, weight=1)
 
@@ -1353,15 +1516,13 @@ class DecrypterApp:
         self._register_font(self.widgets["log_header"], "mono_log_header")
         self.widgets["log_header"].pack(side="left")
 
-        # Log controls (Copy / Clear) on the right of the log header.
+        # Log controls (Copy / Clear) on the right.
         log_controls = ctk.CTkFrame(log_header, fg_color="transparent")
         log_controls.pack(side="right")
 
         self.widgets["log_clear"] = ctk.CTkButton(
-            log_controls,
-            text="",
-            width=70,
-            height=24,
+            log_controls, text="",
+            width=70, height=24,
             fg_color=COLORS["surface_alt"],
             hover_color=COLORS["border"],
             text_color=COLORS["text_secondary"],
@@ -1372,10 +1533,8 @@ class DecrypterApp:
         self.widgets["log_clear"].pack(side="right", padx=(4, 0))
 
         self.widgets["log_copy"] = ctk.CTkButton(
-            log_controls,
-            text="",
-            width=70,
-            height=24,
+            log_controls, text="",
+            width=70, height=24,
             fg_color=COLORS["surface_alt"],
             hover_color=COLORS["border"],
             text_color=COLORS["text_secondary"],
@@ -1397,18 +1556,14 @@ class DecrypterApp:
         self._register_font(self.log_area, "mono_log")
         self.log_area.grid(row=1, column=0, sticky="nsew", padx=6, pady=(0, 8))
 
-        # Aliases: both folder buttons share the "folder_button" translation.
-        self.widgets_alias = {
-            "folder_button_game":   "folder_button",
-            "folder_button_output": "folder_button",
-        }
-
     # ------------------------------------------------------------------
     # UI helpers
     # ------------------------------------------------------------------
-    def _section_label(self, *, row: int, translation_key: str, padx: int):
+    def _section_label(self, *, row: int, translation_key: str, padx: int) -> None:
         label = ctk.CTkLabel(
-            self.root, text="", text_color=COLORS["text_tertiary"], anchor="w",
+            self.root, text="",
+            text_color=COLORS["text_tertiary"],
+            anchor="w",
         )
         self._register_font(label, "section")
         label.grid(row=row, column=0, sticky="ew", padx=padx + 4, pady=(14, 0))

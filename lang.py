@@ -42,6 +42,7 @@ TEXT = {
         "target_both":      "이미지 + 오디오",
         "target_image":     "이미지 파일만",
         "target_audio":     "오디오 파일만",
+        "auto_open_label":  "완료 후 결과 폴더 자동 열기",
 
         # fields
         "input_placeholder":  "게임 폴더를 선택하세요",
@@ -52,7 +53,6 @@ TEXT = {
         # buttons
         "folder_button":     "폴더 선택",
         "open_output":       "열기",
-        "save_button":       "설정 저장",
         "key_show":          "표시",
         "key_hide":          "숨기기",
         "run_button":        "  ▶  복호화 시작",
@@ -64,16 +64,27 @@ TEXT = {
         "log_copy":   "복사",
         "log_clear":  "지우기",
 
+        # right-click context menu (key entry)
+        "ctx_cut":   "잘라내기",
+        "ctx_copy":  "복사",
+        "ctx_paste": "붙여넣기",
+
+        # status label (below progress bar)
+        "scan_status":     "스캔 중…",
+        "decrypt_status":  "복호화 중…  {processed}/{total}  ({percent}%)",
+        "cancel_status":   "취소되었습니다.",
+        "done_status":     "완료",
+
         # dialogs
         "select_game_dialog":   "원본 게임 폴더 선택",
         "select_output_dialog": "결과물 저장 폴더 선택",
-        "save_title":           "저장",
-        "save_done":            "설정이 저장되었습니다.",
         "warning_title":        "경고",
         "error_title":          "오류",
         "done_title":           "완료",
         "done_success_msg":     "{count}개 파일이 모두 복호화되었습니다.",
         "done_failed_msg":      "{failed}개 파일 처리에 실패했습니다. 로그를 확인해 주세요.",
+        "close_confirm_title":  "종료 확인",
+        "close_confirm_msg":    "복호화 작업이 진행 중입니다.\n작업을 취소하고 종료하시겠습니까?",
 
         # validation
         "missing_fields":      "복호화 키, 원본 폴더, 결과물 저장 폴더를 모두 설정해 주세요.",
@@ -101,6 +112,8 @@ TEXT = {
         "status_ok":              "유효한 키 발견",
         "key_found":              "[*] 복호화 키 자동 추출 성공: {key}",
         "key_search_failed":      "[!] System.json에서 유효한 키를 찾지 못했습니다.",
+        "unencrypted_game":       "[i] 이 게임은 암호화되어 있지 않습니다. 복호화가 필요 없습니다.",
+        "encrypted_no_key":       "[!] 암호화된 게임이지만 System.json에서 키를 찾지 못했습니다. 직접 입력해 주세요.",
 
         # appearance / language change
         "lang_changed": "[Lang] 언어가 한국어로 변경되었습니다.",
@@ -141,7 +154,6 @@ TEXT = {
         # misc
         "key_note":               "복호화 키는 설정 파일에 저장되지 않으며, 프로그램 실행 중에만 메모리에서 사용됩니다.",
         "fatal_error":            "[Fatal] 프로그램 실행 중 치명적인 오류가 발생했습니다: {error}",
-        "close_while_processing": "복호화 작업 중에는 창을 닫을 수 없습니다. 작업이 끝난 뒤 종료해 주세요.",
         "fonts_missing_note":     "[i] Pretendard 폰트 파일을 찾을 수 없어 시스템 기본 글꼴을 사용합니다.",
     },
 
@@ -163,6 +175,7 @@ TEXT = {
         "target_both":      "Images + Audio",
         "target_image":     "Images only",
         "target_audio":     "Audio only",
+        "auto_open_label":  "Open output folder when done",
 
         "input_placeholder":  "Select the game folder",
         "output_placeholder": "Folder for the decrypted files",
@@ -171,7 +184,6 @@ TEXT = {
 
         "folder_button":     "Browse",
         "open_output":       "Open",
-        "save_button":       "Save Settings",
         "key_show":          "Show",
         "key_hide":          "Hide",
         "run_button":        "  ▶  Start Decryption",
@@ -182,15 +194,24 @@ TEXT = {
         "log_copy":   "Copy",
         "log_clear":  "Clear",
 
+        "ctx_cut":   "Cut",
+        "ctx_copy":  "Copy",
+        "ctx_paste": "Paste",
+
+        "scan_status":    "Scanning…",
+        "decrypt_status": "Decrypting…  {processed}/{total}  ({percent}%)",
+        "cancel_status":  "Cancelled.",
+        "done_status":    "Done",
+
         "select_game_dialog":   "Select Source Game Folder",
         "select_output_dialog": "Select Output Folder",
-        "save_title":           "Saved",
-        "save_done":            "Settings were saved.",
         "warning_title":        "Warning",
         "error_title":          "Error",
         "done_title":           "Done",
         "done_success_msg":     "All {count} file(s) decrypted successfully.",
         "done_failed_msg":      "{failed} file(s) failed. Check the log for details.",
+        "close_confirm_title":  "Close confirmation",
+        "close_confirm_msg":    "Decryption is in progress.\nCancel the task and quit?",
 
         "missing_fields":      "Please set the decryption key, source folder, and output folder.",
         "invalid_input_dir":   "The source game folder does not exist.",
@@ -215,6 +236,8 @@ TEXT = {
         "status_ok":              "valid key found",
         "key_found":              "[*] Decryption key auto-detected: {key}",
         "key_search_failed":      "[!] Could not find a valid key in any System.json.",
+        "unencrypted_game":       "[i] This game is not encrypted — no decryption is needed.",
+        "encrypted_no_key":       "[!] Encrypted game detected, but no key found in System.json. Please enter the key manually.",
 
         "lang_changed": "[Lang] Language changed to English.",
         "mode_dark":    "[Dark] Dark mode enabled.",
@@ -249,10 +272,9 @@ TEXT = {
         "unknown_error":  "Unknown error",
         "io_error":       "I/O error: {error}",
 
-        "key_note":               "The decryption key is not stored in the config file. It only lives in memory while the app is running.",
-        "fatal_error":            "[Fatal] A critical error occurred: {error}",
-        "close_while_processing": "You cannot close the window while decryption is running. Please wait until the task finishes.",
-        "fonts_missing_note":     "[i] Pretendard font files were not found. Falling back to the system default font.",
+        "key_note":           "The decryption key is not stored in the config file. It only lives in memory while the app is running.",
+        "fatal_error":        "[Fatal] A critical error occurred: {error}",
+        "fonts_missing_note": "[i] Pretendard font files were not found. Falling back to the system default font.",
     },
 
     "ja": {
@@ -273,6 +295,7 @@ TEXT = {
         "target_both":      "画像 + オーディオ",
         "target_image":     "画像ファイルのみ",
         "target_audio":     "オーディオのみ",
+        "auto_open_label":  "完了後に出力フォルダーを自動で開く",
 
         "input_placeholder":  "ゲームフォルダーを選択してください",
         "output_placeholder": "復号後のファイルを保存するフォルダー",
@@ -281,7 +304,6 @@ TEXT = {
 
         "folder_button":     "フォルダー選択",
         "open_output":       "開く",
-        "save_button":       "設定を保存",
         "key_show":          "表示",
         "key_hide":          "非表示",
         "run_button":        "  ▶  復号開始",
@@ -292,15 +314,24 @@ TEXT = {
         "log_copy":   "コピー",
         "log_clear":  "クリア",
 
+        "ctx_cut":   "切り取り",
+        "ctx_copy":  "コピー",
+        "ctx_paste": "貼り付け",
+
+        "scan_status":    "スキャン中…",
+        "decrypt_status": "復号中…  {processed}/{total}  ({percent}%)",
+        "cancel_status":  "キャンセルされました。",
+        "done_status":    "完了",
+
         "select_game_dialog":   "元ゲームフォルダーを選択",
         "select_output_dialog": "出力フォルダーを選択",
-        "save_title":           "保存",
-        "save_done":            "設定を保存しました。",
         "warning_title":        "警告",
         "error_title":          "エラー",
         "done_title":           "完了",
         "done_success_msg":     "{count} 個のファイルをすべて正常に復号しました。",
         "done_failed_msg":      "{failed} 個のファイルが失敗しました。ログをご確認ください。",
+        "close_confirm_title":  "終了確認",
+        "close_confirm_msg":    "復号処理が進行中です。\nタスクをキャンセルして終了しますか?",
 
         "missing_fields":      "復号キー、元フォルダー、出力フォルダーをすべて設定してください。",
         "invalid_input_dir":   "元ゲームフォルダーが存在しません。",
@@ -325,6 +356,8 @@ TEXT = {
         "status_ok":              "有効なキーを発見",
         "key_found":              "[*] 復号キーを自動取得しました: {key}",
         "key_search_failed":      "[!] 有効なキーを含む System.json が見つかりませんでした。",
+        "unencrypted_game":       "[i] このゲームは暗号化されていません。復号は不要です。",
+        "encrypted_no_key":       "[!] 暗号化ゲームですが System.json からキーを取得できませんでした。手動で入力してください。",
 
         "lang_changed": "[Lang] 言語を日本語に変更しました。",
         "mode_dark":    "[Dark] ダークモードに切り替えました。",
@@ -359,9 +392,8 @@ TEXT = {
         "unknown_error":  "不明なエラー",
         "io_error":       "I/O エラー: {error}",
 
-        "key_note":               "復号キーは設定ファイルに保存されません。アプリ実行中のメモリ上にのみ保持されます。",
-        "fatal_error":            "[Fatal] 実行中に重大なエラーが発生しました: {error}",
-        "close_while_processing": "復号処理中はウィンドウを閉じられません。完了するまでお待ちください。",
-        "fonts_missing_note":     "[i] Pretendard フォントが見つからないため、システム既定のフォントを使用します。",
+        "key_note":           "復号キーは設定ファイルに保存されません。アプリ実行中のメモリ上にのみ保持されます。",
+        "fatal_error":        "[Fatal] 実行中に重大なエラーが発生しました: {error}",
+        "fonts_missing_note": "[i] Pretendard フォントが見つからないため、システム既定のフォントを使用します。",
     },
 }

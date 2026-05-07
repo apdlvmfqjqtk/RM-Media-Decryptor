@@ -1,0 +1,5 @@
+# Runtime dependency
+customtkinter>=5.2.0
+
+# Build-only (used by RM_Media_Decryptor.spec)
+pyinstaller>=6.0.0

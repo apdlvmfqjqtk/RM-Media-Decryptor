@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from typing import NamedTuple
 
 # ---------------------------------------------------------------------------
 # Extension maps
@@ -91,21 +92,44 @@ def get_system_json_candidates(selected_dir: str) -> list[str]:
     ]
 
 
-def extract_key_from_system_json(selected_dir: str):
-    """Walk every candidate System.json path and attempt to extract the key.
+class SystemJsonScan(NamedTuple):
+    """Result of scanning System.json files for encryption metadata.
 
-    Returns:
-        (key_or_None, attempts)
+    Attributes:
+        key:                  Extracted 32-char hex key, or None.
+        attempts:             Per-path status log (path, status_code, extra).
+        has_encrypted_images: True if any System.json has hasEncryptedImages=true.
+        has_encrypted_audio:  True if any System.json has hasEncryptedAudio=true.
+        found_system_json:    True if at least one System.json file existed.
+    """
+    key:                  str | None
+    attempts:             list[tuple[str, str, object]]
+    has_encrypted_images: bool
+    has_encrypted_audio:  bool
+    found_system_json:    bool
 
-    *attempts* is a list of ``(path, status_code, extra_info)`` tuples that
-    the GUI uses to display a per-path status log.
+
+def extract_key_from_system_json(selected_dir: str) -> SystemJsonScan:
+    """Walk every candidate System.json path and gather encryption metadata.
+
+    The function reads `encryptionKey`, `hasEncryptedImages`, and
+    `hasEncryptedAudio` so callers can distinguish between:
+      * A correctly-detected key
+      * An encrypted game whose key could not be parsed
+      * A game that simply isn't encrypted at all
     """
     attempts: list[tuple[str, str, object]] = []
+    has_img_enc      = False
+    has_aud_enc      = False
+    found_any        = False
 
     for path in get_system_json_candidates(selected_dir):
         if not os.path.exists(path):
             attempts.append((path, "not_found", None))
             continue
+
+        # At least one System.json exists on disk.
+        found_any = True
 
         try:
             with open(path, "r", encoding="utf-8-sig") as f:
@@ -114,7 +138,17 @@ def extract_key_from_system_json(selected_dir: str):
             attempts.append((path, "read_error", str(e)))
             continue
 
-        if not isinstance(data, dict) or "encryptionKey" not in data:
+        if not isinstance(data, dict):
+            attempts.append((path, "key_missing", None))
+            continue
+
+        # OR-accumulate encryption flags across all System.json files.
+        if data.get("hasEncryptedImages"):
+            has_img_enc = True
+        if data.get("hasEncryptedAudio"):
+            has_aud_enc = True
+
+        if "encryptionKey" not in data:
             attempts.append((path, "key_missing", None))
             continue
 
@@ -135,9 +169,21 @@ def extract_key_from_system_json(selected_dir: str):
             continue
 
         attempts.append((path, "ok", None))
-        return key, attempts
+        return SystemJsonScan(
+            key=key,
+            attempts=attempts,
+            has_encrypted_images=has_img_enc,
+            has_encrypted_audio=has_aud_enc,
+            found_system_json=True,
+        )
 
-    return None, attempts
+    return SystemJsonScan(
+        key=None,
+        attempts=attempts,
+        has_encrypted_images=has_img_enc,
+        has_encrypted_audio=has_aud_enc,
+        found_system_json=found_any,
+    )
 
 
 # ---------------------------------------------------------------------------
