@@ -399,9 +399,9 @@ class DecrypterApp:
             if os.path.isfile(icon_path):
                 try:
                     self.root.iconbitmap(icon_path)
+                    return
                 except Exception as e:
                     sys.stderr.write(f"[icon] iconbitmap failed: {e}\n")
-                return
         sys.stderr.write("[icon] No icon file found in any candidate path.\n")
 
     # ------------------------------------------------------------------
@@ -898,7 +898,9 @@ class DecrypterApp:
             if code == "io_error":
                 return self.t("io_error", error=detail)
             if code == "raw_error":
-                return self.t("unknown_error") if detail == "unknown_error" else str(detail)
+                if detail in ("unknown_error", "key_too_short"):
+                    return self.t(detail)
+                return str(detail)
             return str(detail or code)
         if reason in ("bad_png", "bad_ogg", "bad_m4a", "unknown_error"):
             return self.t(reason)
@@ -1203,6 +1205,9 @@ class DecrypterApp:
             if _base_folder == "www"
             else _base_folder
         )
+        # Guard against degenerate folder names (".", "..") that could escape output_dir.
+        if game_name in ("", ".", ".."):
+            game_name = ""
 
         total = len(target_files)
 
@@ -1397,7 +1402,9 @@ class DecrypterApp:
             try:
                 self.progress_bar.stop()
                 self.progress_bar.configure(mode="determinate")
-                self.progress_bar.set(0)
+                # Keep bar at 100% on success so the user sees completion feedback;
+                # reset to 0 on cancel or when nothing was processed.
+                self.progress_bar.set(0 if (cancelled or self.total_files == 0) else 1.0)
             except Exception:
                 pass
 
@@ -1409,7 +1416,12 @@ class DecrypterApp:
                 command=self.start_processing,
             )
 
-            self._set_status("cancel_status" if cancelled else None)
+            if cancelled:
+                self._set_status("cancel_status")
+            elif self.total_files > 0:
+                self._set_status("complete_status")
+            else:
+                self._set_status(None)
 
             # If a close-after-cancel was requested, the polling loop will
             # detect that processing finished and destroy the window.
@@ -1444,10 +1456,6 @@ class DecrypterApp:
         self._destroy_window()
 
     def _destroy_window(self) -> None:
-        try:
-            FONT_LOADER.unload()
-        except Exception:
-            pass
         self.root.destroy()
 
     # ==================================================================
@@ -1676,7 +1684,7 @@ class DecrypterApp:
             show="*", placeholder_text="",
             fg_color=COLORS["surface_alt"],
             border_color=COLORS["accent"],
-            text_color=COLORS["success"],
+            text_color=COLORS["text_primary"],
             corner_radius=RADIUS_CONTROL, height=32,
         )
         self.entry_key.configure(font=self._font("mono_key"))

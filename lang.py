@@ -80,8 +80,9 @@ TEXT = {
         # status label (below progress bar)
         "scan_status":    "스캔 중...",
         "decrypt_status": "복호화 중  {processed}/{total} ({percent}%)  |  {eta}",
-        "cancel_status":  "취소되었습니다.",
-        "shortcuts_hint": "F5: 시작   |   Esc: 취소   |   Ctrl+L: 로그 지우기",
+        "cancel_status":   "취소되었습니다.",
+        "complete_status": "복호화가 완료되었습니다.",
+        "shortcuts_hint":  "F5: 시작   |   Esc: 취소   |   Ctrl+L: 로그 지우기",
 
         # ETA formatting
         "eta_seconds":  "{s}초",
@@ -152,6 +153,7 @@ TEXT = {
         "bad_png":       "복호화 결과가 PNG 시그니처와 일치하지 않습니다. 키가 틀렸을 가능성이 큽니다.",
         "bad_ogg":       "복호화 결과가 OGG 시그니처와 일치하지 않습니다. 키가 틀렸을 가능성이 큽니다.",
         "bad_m4a":       "복호화 결과가 M4A 시그니처와 일치하지 않습니다. 키가 틀렸을 가능성이 큽니다.",
+        "key_too_short": "복호화 키 바이트가 부족합니다. (내부 오류)",
         "unknown_error": "알 수 없는 오류",
         "io_error":      "I/O 오류: {error}",
 
@@ -207,8 +209,9 @@ TEXT = {
 
         "scan_status":    "Scanning...",
         "decrypt_status": "Decrypting  {processed}/{total} ({percent}%)  |  ETA {eta}",
-        "cancel_status":  "Cancelled.",
-        "shortcuts_hint": "F5: Run   |   Esc: Cancel   |   Ctrl+L: Clear log",
+        "cancel_status":   "Cancelled.",
+        "complete_status": "Decryption complete.",
+        "shortcuts_hint":  "F5: Run   |   Esc: Cancel   |   Ctrl+L: Clear log",
 
         "eta_seconds":  "{s}s",
         "eta_min_sec":  "{m}m {s}s",
@@ -271,6 +274,7 @@ TEXT = {
         "bad_png":       "Decrypted output does not match the PNG signature. The key is likely wrong.",
         "bad_ogg":       "Decrypted output does not match the OGG signature. The key is likely wrong.",
         "bad_m4a":       "Decrypted output does not match the M4A signature. The key is likely wrong.",
+        "key_too_short": "Decryption key bytes are too short. (internal error)",
         "unknown_error": "Unknown error",
         "io_error":      "I/O error: {error}",
 
@@ -325,8 +329,9 @@ TEXT = {
 
         "scan_status":    "スキャン中...",
         "decrypt_status": "復号中  {processed}/{total} ({percent}%)  |  残り {eta}",
-        "cancel_status":  "キャンセルされました。",
-        "shortcuts_hint": "F5: 実行   |   Esc: 中止   |   Ctrl+L: ログ消去",
+        "cancel_status":   "キャンセルされました。",
+        "complete_status": "復号完了。",
+        "shortcuts_hint":  "F5: 実行   |   Esc: 中止   |   Ctrl+L: ログ消去",
 
         "eta_seconds":  "{s} 秒",
         "eta_min_sec":  "{m} 分 {s} 秒",
@@ -389,6 +394,7 @@ TEXT = {
         "bad_png":       "復号結果が PNG シグネチャと一致しません。キーが間違っている可能性が高いです。",
         "bad_ogg":       "復号結果が OGG シグネチャと一致しません。キーが間違っている可能性が高いです。",
         "bad_m4a":       "復号結果が M4A シグネチャと一致しません。キーが間違っている可能性が高いです。",
+        "key_too_short": "復号キーのバイト数が不足しています。(内部エラー)",
         "unknown_error": "不明なエラー",
         "io_error":      "I/O エラー: {error}",
 

@@ -84,21 +84,18 @@ def load_config_data() -> tuple[dict, Exception | None]:
 
     # Security hygiene: purge any legacy stored key fields.
     legacy_keys = ("decryption_key", "encryption_key", "key")
-    if any(k in data for k in legacy_keys):
-        for k in legacy_keys:
-            data.pop(k, None)
-        try:
-            save_config_data(**_sanitize(data))
-        except Exception:
-            pass
+    for k in legacy_keys:
+        data.pop(k, None)
 
     sanitized = _sanitize(data)
 
-    # Re-save to remove stale fields (e.g. a previously stored input_dir).
-    try:
-        save_config_data(**sanitized)
-    except Exception:
-        pass
+    # Re-save only when the file contained stale or invalid data so that
+    # a normal startup does not incur a pointless write.
+    if data != sanitized:
+        try:
+            save_config_data(**sanitized)
+        except Exception:
+            pass
 
     return sanitized, None
 
