@@ -1,6 +1,5 @@
 ([('RM_Media_Decryptor.exe',
-   'C:\\Users\\JW\\Desktop\\RPG '
-   'Encode\\RM_Media_Decryptor\\build\\RM_Media_Decryptor\\RM_Media_Decryptor.exe',
+   'C:\\Users\\JW\\Desktop\\GitHub\\RM-Media-Decryptor\\build\\RM_Media_Decryptor\\RM_Media_Decryptor.exe',
    'EXECUTABLE'),
   ('VCRUNTIME140.dll',
    'C:\\Users\\JW\\AppData\\Local\\Programs\\Python\\Python314\\VCRUNTIME140.dll',
@@ -2802,43 +2801,34 @@
    'C:\\Users\\JW\\AppData\\Local\\Programs\\Python\\Python314\\DLLs\\_zstd.pyd',
    'EXTENSION'),
   ('assets\\fonts\\Pretendard-Bold.ttf',
-   'C:\\Users\\JW\\Desktop\\RPG '
-   'Encode\\RM_Media_Decryptor\\assets\\fonts\\Pretendard-Bold.ttf',
+   'C:\\Users\\JW\\Desktop\\GitHub\\RM-Media-Decryptor\\assets\\fonts\\Pretendard-Bold.ttf',
    'DATA'),
   ('assets\\fonts\\Pretendard-Medium.ttf',
-   'C:\\Users\\JW\\Desktop\\RPG '
-   'Encode\\RM_Media_Decryptor\\assets\\fonts\\Pretendard-Medium.ttf',
+   'C:\\Users\\JW\\Desktop\\GitHub\\RM-Media-Decryptor\\assets\\fonts\\Pretendard-Medium.ttf',
    'DATA'),
   ('assets\\fonts\\Pretendard-Regular.ttf',
-   'C:\\Users\\JW\\Desktop\\RPG '
-   'Encode\\RM_Media_Decryptor\\assets\\fonts\\Pretendard-Regular.ttf',
+   'C:\\Users\\JW\\Desktop\\GitHub\\RM-Media-Decryptor\\assets\\fonts\\Pretendard-Regular.ttf',
    'DATA'),
   ('assets\\fonts\\Pretendard-SemiBold.ttf',
-   'C:\\Users\\JW\\Desktop\\RPG '
-   'Encode\\RM_Media_Decryptor\\assets\\fonts\\Pretendard-SemiBold.ttf',
+   'C:\\Users\\JW\\Desktop\\GitHub\\RM-Media-Decryptor\\assets\\fonts\\Pretendard-SemiBold.ttf',
    'DATA'),
   ('assets\\fonts\\PretendardJP-Bold.ttf',
-   'C:\\Users\\JW\\Desktop\\RPG '
-   'Encode\\RM_Media_Decryptor\\assets\\fonts\\PretendardJP-Bold.ttf',
+   'C:\\Users\\JW\\Desktop\\GitHub\\RM-Media-Decryptor\\assets\\fonts\\PretendardJP-Bold.ttf',
    'DATA'),
   ('assets\\fonts\\PretendardJP-Medium.ttf',
-   'C:\\Users\\JW\\Desktop\\RPG '
-   'Encode\\RM_Media_Decryptor\\assets\\fonts\\PretendardJP-Medium.ttf',
+   'C:\\Users\\JW\\Desktop\\GitHub\\RM-Media-Decryptor\\assets\\fonts\\PretendardJP-Medium.ttf',
    'DATA'),
   ('assets\\fonts\\PretendardJP-Regular.ttf',
-   'C:\\Users\\JW\\Desktop\\RPG '
-   'Encode\\RM_Media_Decryptor\\assets\\fonts\\PretendardJP-Regular.ttf',
+   'C:\\Users\\JW\\Desktop\\GitHub\\RM-Media-Decryptor\\assets\\fonts\\PretendardJP-Regular.ttf',
    'DATA'),
   ('assets\\fonts\\PretendardJP-SemiBold.ttf',
-   'C:\\Users\\JW\\Desktop\\RPG '
-   'Encode\\RM_Media_Decryptor\\assets\\fonts\\PretendardJP-SemiBold.ttf',
+   'C:\\Users\\JW\\Desktop\\GitHub\\RM-Media-Decryptor\\assets\\fonts\\PretendardJP-SemiBold.ttf',
    'DATA'),
   ('assets\\myicon.ico',
-   'C:\\Users\\JW\\Desktop\\RPG Encode\\RM_Media_Decryptor\\assets\\myicon.ico',
+   'C:\\Users\\JW\\Desktop\\GitHub\\RM-Media-Decryptor\\assets\\myicon.ico',
    'DATA'),
   ('base_library.zip',
-   'C:\\Users\\JW\\Desktop\\RPG '
-   'Encode\\RM_Media_Decryptor\\build\\RM_Media_Decryptor\\base_library.zip',
+   'C:\\Users\\JW\\Desktop\\GitHub\\RM-Media-Decryptor\\build\\RM_Media_Decryptor\\base_library.zip',
    'DATA'),
   ('customtkinter\\assets\\.DS_Store',
    'C:\\Users\\JW\\AppData\\Local\\Programs\\Python\\Python314\\Lib\\site-packages\\customtkinter\\assets\\.DS_Store',
