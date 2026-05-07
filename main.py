@@ -30,6 +30,7 @@ import os
 import pathlib
 import sys
 import threading
+import time
 import ctypes
 from ctypes import wintypes
 import tkinter as tk
@@ -229,8 +230,9 @@ COLORS = {
     "accent_hover":   ("#0066CC", "#0071E3"),
     "success":        ("#248A3D", "#30D158"),
     "warning":        ("#BF5B00", "#FF9F0A"),
-    "danger":         ("#D70015", "#FF453A"),
-    "danger_hover":   ("#A8000F", "#CC3830"),
+    # Slightly desaturated reds — full systemRed feels jarring on a 54-px button.
+    "danger":         ("#C73734", "#E55A4D"),
+    "danger_hover":   ("#A12A28", "#C7423A"),
     "text_primary":   ("#1D1D1F", "#F5F5F7"),
     "text_secondary": ("#3A3A3C", "#98989F"),
     "text_tertiary":  ("#6E6E73", "#636366"),
@@ -240,7 +242,7 @@ COLORS = {
 # =====================================================================
 # 6. Geometry tokens (100 % DPI baseline)
 # =====================================================================
-RADIUS_CARD    = 8
+RADIUS_CARD    = 10
 RADIUS_CONTROL = 4
 RADIUS_BUTTON  = 4
 RADIUS_ENTRY   = 4
@@ -285,11 +287,10 @@ SKIP_REASONS = {
 # 8. Main application
 # =====================================================================
 class DecrypterApp:
-    # Folder buttons that share the same translation key.
-    _WIDGETS_ALIAS = {
-        "folder_button_game":   "folder_button",
-        "folder_button_output": "folder_button",
-    }
+    # Reserved for widgets that share a translation key. Currently empty —
+    # folder buttons now have distinct keys (folder_button_game /
+    # folder_button_output) so the main re-text loop handles them directly.
+    _WIDGETS_ALIAS: dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -318,6 +319,11 @@ class DecrypterApp:
         self._cancel_event         = threading.Event()
         self._closing_after_cancel = False
         self._key_shown            = False  # key field hidden by default for security
+
+        # Key entry alert state. Holds a translation key like
+        # "encrypted_no_key" when the auto-detect found no key for an
+        # encrypted game; None when the field is in its normal state.
+        self._key_alert_key: str | None = None
 
         # Status-label state (so language changes can re-render the label).
         self._status_key:  str | None = None
@@ -360,7 +366,7 @@ class DecrypterApp:
         self.apply_language(log_change=False, save=False)
 
         # Warm up reactive widgets.
-        self._on_key_changed()
+        self._render_key_state()
         self._on_output_dir_changed()
 
         if not (FONT_LOADER.has_pretendard or FONT_LOADER.has_pretendard_jp):
@@ -528,6 +534,11 @@ class DecrypterApp:
         # Re-render the status label so its text follows the new language.
         self._render_status()
 
+        # Re-render key entry state — the generic widgets loop above set
+        # the key_note label to its default text, but an active alert
+        # (e.g. encrypted_no_key) needs to override that.
+        self._render_key_state()
+
         if log_change:
             self.log(self.t("lang_changed"))
         if save:
@@ -597,16 +608,59 @@ class DecrypterApp:
                     pass
 
     def _on_key_changed(self, *_) -> None:
-        """Update the key entry border colour based on current validity."""
-        key = self.key_var.get().strip()
-        if not key:
-            color = COLORS["accent"]          # neutral (no input yet)
+        """Trace handler for key_var. Clears alert state if the user starts
+        typing, then re-renders the key entry's appearance."""
+        if self._key_alert_key is not None and self.key_var.get().strip():
+            self._key_alert_key = None
+        self._render_key_state()
+
+    def _set_key_alert(self, message_key: str | None) -> None:
+        """Activate or clear the key entry's warning state.
+
+        Pass a translation key (e.g. ``"encrypted_no_key"``) to display
+        an inline warning under the key field, or ``None`` to clear.
+        """
+        self._key_alert_key = message_key
+        self._render_key_state()
+
+    def _render_key_state(self) -> None:
+        """Re-render the key entry border + key_note label.
+
+        Priority order for the border colour:
+          1. Key visibility ON          -> warning  (visually mark exposure)
+          2. Active alert (no_key etc.) -> warning
+          3. Empty input                -> accent   (neutral)
+          4. Valid 32-char hex          -> success
+          5. Anything else              -> danger
+        """
+        if self._key_shown:
+            color = COLORS["warning"]
+        elif self._key_alert_key is not None:
+            color = COLORS["warning"]
         else:
-            ok, _ = validate_key(key)
-            color = COLORS["success"] if ok else COLORS["danger"]
+            key = self.key_var.get().strip()
+            if not key:
+                color = COLORS["accent"]
+            else:
+                ok, _ = validate_key(key)
+                color = COLORS["success"] if ok else COLORS["danger"]
+
         if hasattr(self, "entry_key"):
             try:
                 self.entry_key.configure(border_color=color)
+            except Exception:
+                pass
+
+        # Re-render the note label below the key field.
+        if "key_note" in self.widgets:
+            note_key = self._key_alert_key if self._key_alert_key else "key_note"
+            note_color = (
+                COLORS["warning"] if self._key_alert_key else COLORS["text_tertiary"]
+            )
+            try:
+                self.widgets["key_note"].configure(
+                    text=self.t(note_key), text_color=note_color
+                )
             except Exception:
                 pass
 
@@ -633,9 +687,13 @@ class DecrypterApp:
         self._render_status()
 
     def _render_status(self) -> None:
-        """Render the status label using the current status state."""
+        """Render the status label using the current status state.
+
+        When idle (status_key is None), the label doubles as a keyboard-
+        shortcut hint so the F5 / Esc / Ctrl+L bindings are discoverable.
+        """
         if self._status_key is None:
-            text = ""
+            text = self.t("shortcuts_hint")
         else:
             text = (
                 self.t(self._status_key, **self._status_args)
@@ -759,17 +817,22 @@ class DecrypterApp:
         if scan.key:
             self.key_var.set(scan.key)
             self.log(self.t("key_found", key=mask_key(scan.key)))
+            self._set_key_alert(None)
         elif scan.found_system_json:
             # System.json exists but no usable key.
             if not scan.has_encrypted_images and not scan.has_encrypted_audio:
                 # Game is genuinely unencrypted — no decryption needed.
                 self.log(self.t("unencrypted_game"))
+                self._set_key_alert(None)
             else:
-                # Game IS encrypted but the key is missing or malformed.
+                # Game IS encrypted but the key is missing or malformed —
+                # surface the warning prominently in the key area too.
                 self.log(self.t("encrypted_no_key"))
+                self._set_key_alert("encrypted_no_key")
         else:
             # No System.json found at all.
             self.log(self.t("key_search_failed"))
+            self._set_key_alert(None)
 
         self.save_config()
 
@@ -823,6 +886,8 @@ class DecrypterApp:
             self.btn_toggle_key.configure(
                 text=self.t("key_hide" if self._key_shown else "key_show")
             )
+        # Visibility toggle changes the border priority, so re-render.
+        self._render_key_state()
 
     # ------------------------------------------------------------------
     # Log helpers
@@ -839,7 +904,29 @@ class DecrypterApp:
             pass
 
     def clear_log(self) -> None:
-        """Erase all text from the log area."""
+        """Erase all text from the log area, with a confirm prompt.
+
+        The prompt is skipped when the log is already empty so the
+        keyboard shortcut (Ctrl+L) and button click feel snappy when
+        there's nothing to lose.
+        """
+        try:
+            self.log_area.configure(state="normal")
+            content = self.log_area.get("1.0", "end-1c")
+            self.log_area.configure(state="disabled")
+        except Exception:
+            return
+
+        if not content:
+            return
+
+        if not messagebox.askyesno(
+            self.t("log_clear_confirm_title"),
+            self.t("log_clear_confirm_msg"),
+            parent=self.root,
+        ):
+            return
+
         try:
             self.log_area.configure(state="normal")
             self.log_area.delete("1.0", tk.END)
@@ -1024,6 +1111,9 @@ class DecrypterApp:
         last_logged_bucket = 0
         cancelled_in_loop  = False
 
+        # Wall-clock anchor for ETA estimation. monotonic() never goes backwards.
+        start_time = time.monotonic()
+
         # Parse the hex key once; pass raw bytes to avoid per-file conversion.
         key_bytes = bytes.fromhex(key)
 
@@ -1095,13 +1185,21 @@ class DecrypterApp:
                     )
                 )
 
+            # ETA — only meaningful after a few files complete.
+            elapsed = time.monotonic() - start_time
+            if self.processed_files >= 3 and elapsed > 0:
+                avg = elapsed / self.processed_files
+                eta_seconds = max(0, (total - self.processed_files) * avg)
+            else:
+                eta_seconds = None
+
             # Update progress bar + status label on the main thread.
             pct       = self.processed_files / total
             processed = self.processed_files
             self.root.after(
                 0,
-                lambda v=pct, p=processed, t=total, pc=percent:
-                    self._update_progress(v, p, t, pc),
+                lambda v=pct, p=processed, t=total, pc=percent, e=eta_seconds:
+                    self._update_progress(v, p, t, pc, e),
             )
 
         return {
@@ -1131,14 +1229,38 @@ class DecrypterApp:
             for path, reason in stats["failed_files"]:
                 self.log(self.t("file_failed", path=path, reason=reason))
 
-    def _update_progress(self, value: float, processed: int, total: int, percent: int) -> None:
+    def _update_progress(
+        self,
+        value: float,
+        processed: int,
+        total: int,
+        percent: int,
+        eta_seconds: float | None,
+    ) -> None:
         try:
             self.progress_bar.set(value)
         except Exception:
             pass
         self._set_status(
-            "decrypt_status", processed=processed, total=total, percent=percent
+            "decrypt_status",
+            processed=processed,
+            total=total,
+            percent=percent,
+            eta=self._format_eta(eta_seconds),
         )
+
+    def _format_eta(self, seconds: float | None) -> str:
+        """Render an ETA in the user's language. Returns "—" when unknown."""
+        if seconds is None or seconds < 0:
+            return self.t("eta_unknown")
+        s_total = int(seconds)
+        if s_total < 60:
+            return self.t("eta_seconds", s=s_total)
+        m, s = divmod(s_total, 60)
+        if m < 60:
+            return self.t("eta_min_sec", m=m, s=s)
+        h, m = divmod(m, 60)
+        return self.t("eta_hour_min", h=h, m=m)
 
     def _end_scan_phase(self) -> None:
         """Switch the progress bar from indeterminate (scan) to determinate."""
@@ -1278,6 +1400,19 @@ class DecrypterApp:
         )
         self.widgets["app_subtitle"].grid(row=1, column=0, sticky="ew", pady=(4, 0))
 
+        # Quick-start guide — visible right under the subtitle so first-time
+        # users see the 3-step flow without reading anywhere else.
+        self.widgets["quick_guide"] = self._register_font(
+            ctk.CTkLabel(
+                header, text="",
+                text_color=COLORS["accent"],
+                anchor="w", justify="left",
+                wraplength=540,
+            ),
+            "note",
+        )
+        self.widgets["quick_guide"].grid(row=2, column=0, sticky="ew", pady=(8, 0))
+
         # Divider
         ctk.CTkFrame(
             self.root, height=1, fg_color=COLORS["border"], corner_radius=RADIUS_DIVIDER
@@ -1343,7 +1478,7 @@ class DecrypterApp:
 
         # Target mode
         target_box = ctk.CTkFrame(settings_card, fg_color="transparent")
-        target_box.pack(fill="x", padx=16, pady=(0, 8))
+        target_box.pack(fill="x", padx=16, pady=(0, 14))
         self.widgets["target_label"] = self._register_font(
             ctk.CTkLabel(target_box, text="", text_color=COLORS["text_tertiary"], anchor="w"),
             "label_bold",
@@ -1367,25 +1502,8 @@ class DecrypterApp:
         )
         self._register_font(self.target_mode_menu, "menu")
         self.target_mode_menu.pack(fill="x")
-
-        # Auto-open output folder when done (checkbox)
-        auto_open_box = ctk.CTkFrame(settings_card, fg_color="transparent")
-        auto_open_box.pack(fill="x", padx=16, pady=(0, 14))
-        self.widgets["auto_open_label"] = self._register_font(
-            ctk.CTkCheckBox(
-                auto_open_box, text="",
-                variable=self.auto_open_var,
-                command=self.save_config,
-                fg_color=COLORS["accent"],
-                hover_color=COLORS["accent_hover"],
-                border_color=COLORS["border"],
-                text_color=COLORS["text_secondary"],
-                checkmark_color="#ffffff",
-                corner_radius=RADIUS_CONTROL,
-            ),
-            "switch",
-        )
-        self.widgets["auto_open_label"].pack(anchor="w")
+        # NOTE: the auto_open checkbox lives in the Output card now —
+        # users found it more discoverable next to the output folder.
 
         # ── Section 1: Source folder + key ───────────────────────────
         self._section_label(row=4, translation_key="section_game", padx=PAD_X)
@@ -1524,6 +1642,26 @@ class DecrypterApp:
         self.entry_output.pack(side="left", fill="x", expand=True, padx=(0, 10))
         self.placeholder_widgets.append((self.entry_output, "output_placeholder"))
 
+        # Auto-open option — lives next to the output folder so it sits
+        # exactly where users are configuring "where the result goes".
+        auto_open_box = ctk.CTkFrame(card2, fg_color="transparent")
+        auto_open_box.pack(fill="x", padx=16, pady=(0, 14))
+        self.widgets["auto_open_label"] = self._register_font(
+            ctk.CTkCheckBox(
+                auto_open_box, text="",
+                variable=self.auto_open_var,
+                command=self.save_config,
+                fg_color=COLORS["accent"],
+                hover_color=COLORS["accent_hover"],
+                border_color=COLORS["border"],
+                text_color=COLORS["text_secondary"],
+                checkmark_color="#ffffff",
+                corner_radius=RADIUS_CONTROL,
+            ),
+            "switch",
+        )
+        self.widgets["auto_open_label"].pack(anchor="w")
+
         # ── Run button ───────────────────────────────────────────────
         self.btn_run = ctk.CTkButton(
             self.root, text="",
@@ -1547,11 +1685,14 @@ class DecrypterApp:
         self.progress_bar.set(0)
         self.progress_bar.grid(row=9, column=0, sticky="ew", padx=PAD_X, pady=(8, 0))
 
-        # ── Status label (small, below progress bar) ─────────────────
+        # ── Status label (below progress bar) ────────────────────────
+        # Doubles as a keyboard-shortcut hint when idle. Slightly stronger
+        # text colour than the previous text_tertiary so it's actually
+        # readable both as shortcuts hint and as live progress text.
         self.widgets["status_label"] = self._register_font(
             ctk.CTkLabel(
                 self.root, text="",
-                text_color=COLORS["text_tertiary"],
+                text_color=COLORS["text_secondary"],
                 anchor="w", height=STATUS_LABEL_HEIGHT,
             ),
             "note",

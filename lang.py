@@ -26,11 +26,12 @@ TEXT = {
         "window_title": "RPG Decrypter",
         "app_title":    "RPG Decrypter",
         "app_subtitle": "RPG Maker MV/MZ 암호화 미디어 에셋을 복호화 합니다",
+        "quick_guide":  "①  게임 폴더 선택   →   ②  자동 키 추출   →   ③  ▶  복호화 시작",
 
         # sections
-        "settings_section": "ㅁ  설정",
-        "section_game":     "ㅁ  원본 게임 폴더",
-        "section_output":   "ㅁ  결과물 저장 폴더",
+        "settings_section": "▣  설정",
+        "section_game":     "▣  원본 게임 폴더",
+        "section_output":   "▣  결과물 저장 폴더",
 
         # settings
         "appearance_label": "화면 모드",
@@ -51,18 +52,21 @@ TEXT = {
         "key_placeholder":    "System.json에서 자동 추출되거나 직접 입력 (저장되지 않음)",
 
         # buttons
-        "folder_button":     "폴더 선택",
-        "open_output":       "열기",
-        "key_show":          "표시",
-        "key_hide":          "숨기기",
-        "run_button":        "  ▶  복호화 시작",
-        "cancel_button":     "  ✕  취소",
-        "cancelling_button": "취소 중…",
+        "folder_button_game":   "게임 폴더 찾기",
+        "folder_button_output": "저장 위치 찾기",
+        "open_output":          "열기",
+        "key_show":             "표시",
+        "key_hide":             "숨기기",
+        "run_button":           "▶  복호화 시작",
+        "cancel_button":        "✕  취소",
+        "cancelling_button":    "취소 중…",
 
         # log header + log controls
-        "log_header": "● LOG",
-        "log_copy":   "복사",
-        "log_clear":  "지우기",
+        "log_header":              "● LOG",
+        "log_copy":                "복사",
+        "log_clear":               "지우기",
+        "log_clear_confirm_title": "확인",
+        "log_clear_confirm_msg":   "로그를 모두 지우시겠습니까?",
 
         # right-click context menu (key entry)
         "ctx_cut":   "잘라내기",
@@ -70,9 +74,16 @@ TEXT = {
         "ctx_paste": "붙여넣기",
 
         # status label (below progress bar)
-        "scan_status":     "스캔 중…",
-        "decrypt_status":  "복호화 중…  {processed}/{total}  ({percent}%)",
-        "cancel_status":   "취소되었습니다.",
+        "scan_status":    "스캔 중…",
+        "decrypt_status": "복호화 중…  {processed}/{total}  ({percent}%)   ·   남은 시간 {eta}",
+        "cancel_status":  "취소되었습니다.",
+        "shortcuts_hint": "F5  ▶ 시작     ·     Esc  ✕ 취소     ·     Ctrl+L  로그 지우기",
+
+        # ETA formatting
+        "eta_seconds":  "{s}초",
+        "eta_min_sec":  "{m}분 {s}초",
+        "eta_hour_min": "{h}시간 {m}분",
+        "eta_unknown":  "—",
 
         # dialogs
         "select_game_dialog":   "원본 게임 폴더 선택",
@@ -141,19 +152,20 @@ TEXT = {
         "io_error":      "I/O 오류: {error}",
 
         # misc
-        "key_note":               "복호화 키는 설정 파일에 저장되지 않으며, 프로그램 실행 중에만 메모리에서 사용됩니다.",
-        "fatal_error":            "[Fatal] 프로그램 실행 중 치명적인 오류가 발생했습니다: {error}",
-        "fonts_missing_note":     "[i] Pretendard 폰트 파일을 찾을 수 없어 시스템 기본 글꼴을 사용합니다.",
+        "key_note":           "복호화 키는 설정 파일에 저장되지 않으며, 프로그램 실행 중에만 메모리에서 사용됩니다.",
+        "fatal_error":        "[Fatal] 프로그램 실행 중 치명적인 오류가 발생했습니다: {error}",
+        "fonts_missing_note": "[i] Pretendard 폰트 파일을 찾을 수 없어 시스템 기본 글꼴을 사용합니다.",
     },
 
     "en": {
         "window_title": "RPG Decrypter",
         "app_title":    "RPG Decrypter",
         "app_subtitle": "Decrypts RPG Maker MV/MZ encrypted media assets.",
+        "quick_guide":  "①  Pick game folder   →   ②  Auto-detect key   →   ③  ▶  Run",
 
-        "settings_section": "ㅁ  Settings",
-        "section_game":     "ㅁ  Source Game Folder",
-        "section_output":   "ㅁ  Output Folder",
+        "settings_section": "▣  Settings",
+        "section_game":     "▣  Source Game Folder",
+        "section_output":   "▣  Output Folder",
 
         "appearance_label": "Appearance",
         "language_label":   "Language",
@@ -171,25 +183,34 @@ TEXT = {
         "key_label":          "Decryption Key",
         "key_placeholder":    "Auto-detected from System.json or entered manually (not saved)",
 
-        "folder_button":     "Browse",
-        "open_output":       "Open",
-        "key_show":          "Show",
-        "key_hide":          "Hide",
-        "run_button":        "  ▶  Start Decryption",
-        "cancel_button":     "  ✕  Cancel",
-        "cancelling_button": "Cancelling…",
+        "folder_button_game":   "Find Game Folder",
+        "folder_button_output": "Find Output Folder",
+        "open_output":          "Open",
+        "key_show":             "Show",
+        "key_hide":             "Hide",
+        "run_button":           "▶  Start Decryption",
+        "cancel_button":        "✕  Cancel",
+        "cancelling_button":    "Cancelling…",
 
-        "log_header": "● LOG",
-        "log_copy":   "Copy",
-        "log_clear":  "Clear",
+        "log_header":              "● LOG",
+        "log_copy":                "Copy",
+        "log_clear":               "Clear",
+        "log_clear_confirm_title": "Confirm",
+        "log_clear_confirm_msg":   "Clear all log entries?",
 
         "ctx_cut":   "Cut",
         "ctx_copy":  "Copy",
         "ctx_paste": "Paste",
 
         "scan_status":    "Scanning…",
-        "decrypt_status": "Decrypting…  {processed}/{total}  ({percent}%)",
+        "decrypt_status": "Decrypting…  {processed}/{total}  ({percent}%)   ·   ETA {eta}",
         "cancel_status":  "Cancelled.",
+        "shortcuts_hint": "F5  ▶ Run     ·     Esc  ✕ Cancel     ·     Ctrl+L  Clear log",
+
+        "eta_seconds":  "{s}s",
+        "eta_min_sec":  "{m}m {s}s",
+        "eta_hour_min": "{h}h {m}m",
+        "eta_unknown":  "—",
 
         "select_game_dialog":   "Select Source Game Folder",
         "select_output_dialog": "Select Output Folder",
@@ -259,10 +280,11 @@ TEXT = {
         "window_title": "RPG Decrypter",
         "app_title":    "RPG Decrypter",
         "app_subtitle": "RPG Maker MV/MZ で暗号化されたメディアアセットを復号します。",
+        "quick_guide":  "①  ゲームフォルダー選択   →   ②  キー自動取得   →   ③  ▶  復号開始",
 
-        "settings_section": "ㅁ  設定",
-        "section_game":     "ㅁ  元ゲームフォルダー",
-        "section_output":   "ㅁ  出力フォルダー",
+        "settings_section": "▣  設定",
+        "section_game":     "▣  元ゲームフォルダー",
+        "section_output":   "▣  出力フォルダー",
 
         "appearance_label": "表示モード",
         "language_label":   "言語",
@@ -280,25 +302,34 @@ TEXT = {
         "key_label":          "復号キー",
         "key_placeholder":    "System.json から自動取得、または手動入力(保存されません)",
 
-        "folder_button":     "フォルダー選択",
-        "open_output":       "開く",
-        "key_show":          "表示",
-        "key_hide":          "非表示",
-        "run_button":        "  ▶  復号開始",
-        "cancel_button":     "  ✕  キャンセル",
-        "cancelling_button": "キャンセル中…",
+        "folder_button_game":   "ゲームフォルダーを開く",
+        "folder_button_output": "保存先を開く",
+        "open_output":          "開く",
+        "key_show":             "表示",
+        "key_hide":             "非表示",
+        "run_button":           "▶  復号開始",
+        "cancel_button":        "✕  キャンセル",
+        "cancelling_button":    "キャンセル中…",
 
-        "log_header": "● LOG",
-        "log_copy":   "コピー",
-        "log_clear":  "クリア",
+        "log_header":              "● LOG",
+        "log_copy":                "コピー",
+        "log_clear":               "クリア",
+        "log_clear_confirm_title": "確認",
+        "log_clear_confirm_msg":   "ログをすべて消去しますか?",
 
         "ctx_cut":   "切り取り",
         "ctx_copy":  "コピー",
         "ctx_paste": "貼り付け",
 
         "scan_status":    "スキャン中…",
-        "decrypt_status": "復号中…  {processed}/{total}  ({percent}%)",
+        "decrypt_status": "復号中…  {processed}/{total}  ({percent}%)   ·   残り {eta}",
         "cancel_status":  "キャンセルされました。",
+        "shortcuts_hint": "F5  ▶ 実行     ·     Esc  ✕ 中止     ·     Ctrl+L  ログ消去",
+
+        "eta_seconds":  "{s} 秒",
+        "eta_min_sec":  "{m} 分 {s} 秒",
+        "eta_hour_min": "{h} 時間 {m} 分",
+        "eta_unknown":  "—",
 
         "select_game_dialog":   "元ゲームフォルダーを選択",
         "select_output_dialog": "出力フォルダーを選択",
