@@ -76,6 +76,12 @@ def load_config_data() -> tuple[dict, Exception | None]:
     except Exception as e:
         return _sanitize({}), e
 
+    # The file was valid JSON but not necessarily a dict (e.g. someone
+    # hand-edited it to "[]" or "null"). _sanitize calls data.get(...) so
+    # treat any non-dict payload as a fresh start.
+    if not isinstance(data, dict):
+        return _sanitize({}), None
+
     # Security hygiene: purge any legacy stored key fields.
     legacy_keys = ("decryption_key", "encryption_key", "key")
     if any(k in data for k in legacy_keys):

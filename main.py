@@ -316,6 +316,10 @@ class DecrypterApp:
         self._closing_after_cancel = False
         self._key_shown            = False  # key field hidden by default for security
 
+        # Status-label state (so language changes can re-render the label).
+        self._status_key:  str | None = None
+        self._status_args: dict       = {}
+
         # Tk variables (key_var is in-memory only — never written to disk)
         self.key_var         = tk.StringVar()
         self.input_dir_var   = tk.StringVar()
@@ -469,8 +473,12 @@ class DecrypterApp:
         self.root.title(self.t("window_title"))
         self._refresh_fonts()
 
-        # Re-text every registered widget by translation key.
+        # Re-text every registered widget by translation key. The dark_mode
+        # switch is intentionally skipped here — _update_switch_text renders
+        # state-aware text ("Dark"/"Light") below.
         for key, widget in self.widgets.items():
+            if key == "dark_mode":
+                continue
             if key in TEXT[self.current_lang]:
                 try:
                     widget.configure(text=self.t(key))
@@ -504,9 +512,18 @@ class DecrypterApp:
                 text=self.t("key_hide" if self._key_shown else "key_show")
             )
 
-        # Run button text depends on processing state.
-        if not self.is_processing:
-            self.btn_run.configure(text=self.t("run_button"))
+        # Run / Cancel / Cancelling button text — refresh in every state so
+        # mid-processing language changes update the visible label.
+        if hasattr(self, "btn_run"):
+            if not self.is_processing:
+                self.btn_run.configure(text=self.t("run_button"))
+            elif self._cancel_event.is_set():
+                self.btn_run.configure(text=self.t("cancelling_button"))
+            else:
+                self.btn_run.configure(text=self.t("cancel_button"))
+
+        # Re-render the status label so its text follows the new language.
+        self._render_status()
 
         if log_change:
             self.log(self.t("lang_changed"))
@@ -601,8 +618,27 @@ class DecrypterApp:
         except Exception:
             pass
 
-    def _set_status(self, text: str) -> None:
-        """Update the status label below the progress bar."""
+    def _set_status(self, key: str | None = None, **kwargs) -> None:
+        """Update the status label by translation key.
+
+        Pass ``key=None`` to clear the label. Stored args are remembered so
+        :py:meth:`_render_status` can re-render the label in a different
+        language without losing context.
+        """
+        self._status_key  = key
+        self._status_args = kwargs
+        self._render_status()
+
+    def _render_status(self) -> None:
+        """Render the status label using the current status state."""
+        if self._status_key is None:
+            text = ""
+        else:
+            text = (
+                self.t(self._status_key, **self._status_args)
+                if self._status_args
+                else self.t(self._status_key)
+            )
         if "status_label" in self.widgets:
             try:
                 self.widgets["status_label"].configure(text=text)
@@ -682,7 +718,9 @@ class DecrypterApp:
     # Folder selection / key auto-detect
     # ------------------------------------------------------------------
     def select_output_folder(self) -> None:
-        folder = filedialog.askdirectory(title=self.t("select_output_dialog"))
+        folder = filedialog.askdirectory(
+            parent=self.root, title=self.t("select_output_dialog")
+        )
         if folder:
             self.output_dir_var.set(folder)
             self.save_config()
@@ -694,7 +732,9 @@ class DecrypterApp:
             os.startfile(folder)
 
     def select_game_folder(self) -> None:
-        selected_dir = filedialog.askdirectory(title=self.t("select_game_dialog"))
+        selected_dir = filedialog.askdirectory(
+            parent=self.root, title=self.t("select_game_dialog")
+        )
         if not selected_dir:
             return
 
@@ -748,7 +788,12 @@ class DecrypterApp:
         return status
 
     def _format_decrypt_error(self, reason) -> str:
-        """Translate rpg_core failure codes into user-facing messages."""
+        """Translate rpg_core failure codes into user-facing messages.
+
+        Only failure codes that actually reach this method are matched.
+        Skip codes (``too_small``, ``already_*``, ``not_encrypted``) are
+        filtered upstream by ``SKIP_REASONS`` so they never arrive here.
+        """
         if isinstance(reason, tuple):
             code   = reason[0]
             detail = reason[1] if len(reason) > 1 else ""
@@ -757,7 +802,7 @@ class DecrypterApp:
             if code == "raw_error":
                 return self.t("unknown_error") if detail == "unknown_error" else str(detail)
             return str(detail or code)
-        if reason in ("bad_png", "bad_ogg", "bad_m4a", "unknown_error", "file_too_small"):
+        if reason in ("bad_png", "bad_ogg", "bad_m4a", "unknown_error"):
             return self.t(reason)
         return str(reason)
 
@@ -820,17 +865,23 @@ class DecrypterApp:
         output_dir = self.output_dir_var.get().strip()
 
         if not key or not input_dir or not output_dir:
-            messagebox.showwarning(self.t("warning_title"), self.t("missing_fields"))
+            messagebox.showwarning(
+                self.t("warning_title"), self.t("missing_fields"), parent=self.root
+            )
             return
 
         key_ok, key_msg = validate_key(key)
         if not key_ok:
-            messagebox.showwarning(self.t("warning_title"), self.t(key_msg))
+            messagebox.showwarning(
+                self.t("warning_title"), self.t(key_msg), parent=self.root
+            )
             return
 
         path_ok, path_msg = validate_paths(input_dir, output_dir)
         if not path_ok:
-            messagebox.showwarning(self.t("warning_title"), self.t(path_msg))
+            messagebox.showwarning(
+                self.t("warning_title"), self.t(path_msg), parent=self.root
+            )
             return
 
         self.is_processing   = True
@@ -849,7 +900,7 @@ class DecrypterApp:
         # Switch progress bar to indeterminate (scanning phase).
         self.progress_bar.configure(mode="indeterminate")
         self.progress_bar.start()
-        self._set_status(self.t("scan_status"))
+        self._set_status("scan_status")
 
         self.save_config()
 
@@ -1083,7 +1134,7 @@ class DecrypterApp:
         except Exception:
             pass
         self._set_status(
-            self.t("decrypt_status", processed=processed, total=total, percent=percent)
+            "decrypt_status", processed=processed, total=total, percent=percent
         )
 
     def _end_scan_phase(self) -> None:
@@ -1100,7 +1151,15 @@ class DecrypterApp:
 
         The messagebox is modal, so by the time it returns the user has
         dismissed it — we then optionally open the output folder.
+
+        If the user is in the middle of closing the window (cancel-then-close
+        flow), we suppress everything: no popup, no auto-open. Otherwise the
+        user would see a "done" dialog and have a folder pop open after they
+        explicitly asked the app to quit.
         """
+        if self._closing_after_cancel:
+            return
+
         self.root.bell()
         self.root.lift()
 
@@ -1108,11 +1167,13 @@ class DecrypterApp:
             messagebox.showinfo(
                 self.t("done_title"),
                 self.t("done_success_msg", count=stats["success_count"]),
+                parent=self.root,
             )
         else:
             messagebox.showwarning(
                 self.t("warning_title"),
                 self.t("done_failed_msg", failed=stats["fail_count"]),
+                parent=self.root,
             )
 
         if self.auto_open_var.get():
@@ -1138,7 +1199,7 @@ class DecrypterApp:
                 command=self.start_processing,
             )
 
-            self._set_status(self.t("cancel_status") if cancelled else "")
+            self._set_status("cancel_status" if cancelled else None)
 
             # If a close-after-cancel was requested, the polling loop will
             # detect that processing finished and destroy the window.
@@ -1153,6 +1214,7 @@ class DecrypterApp:
             answer = messagebox.askyesno(
                 self.t("close_confirm_title"),
                 self.t("close_confirm_msg"),
+                parent=self.root,
             )
             if not answer:
                 return

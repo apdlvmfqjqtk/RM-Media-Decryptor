@@ -205,18 +205,18 @@ def validate_key(key: str) -> tuple[bool, str]:
 
 
 def validate_paths(input_dir: str, output_dir: str) -> tuple[bool, str]:
-    """Validate input/output directories and create *output_dir* if needed."""
+    """Validate input/output directories and create *output_dir* if needed.
+
+    Pre-flight relationship checks (same_dir, output_inside_input) run
+    BEFORE makedirs so a rejected output_dir does not leave a stray empty
+    folder polluting the user's filesystem (notably the input folder).
+    """
     if not os.path.isdir(input_dir):
         return False, "invalid_input_dir"
 
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-    except Exception:
-        return False, "invalid_output_dir"
-
-    if not os.path.isdir(output_dir):
-        return False, "invalid_output_dir"
-
+    # realpath works on non-existent paths — it just normalises the segments
+    # that do exist and returns the rest as-is. Safe to use for the
+    # relationship comparison before the directory is actually created.
     input_abs  = os.path.normcase(os.path.realpath(input_dir))
     output_abs = os.path.normcase(os.path.realpath(output_dir))
 
@@ -229,6 +229,15 @@ def validate_paths(input_dir: str, output_dir: str) -> tuple[bool, str]:
     except ValueError:
         # Paths are on different drives — that is fine.
         pass
+
+    # Relationship checks passed — now safe to create the output directory.
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+    except Exception:
+        return False, "invalid_output_dir"
+
+    if not os.path.isdir(output_dir):
+        return False, "invalid_output_dir"
 
     return True, ""
 
@@ -254,7 +263,9 @@ def unique_output_path(path: str) -> str:
             return candidate
 
     # Extreme fallback: use the current timestamp (microsecond resolution).
-    return f"{base}_{int(time.time() * 1_000_000)}{ext}"
+    # time_ns gives full integer precision; floats from time.time() lose
+    # sub-second precision past 2038-ish.
+    return f"{base}_{time.time_ns() // 1000}{ext}"
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +315,11 @@ def decrypt_asset(input_path: str, output_path: str, key_bytes: bytes):
         ``(True, "")`` on success.
         ``(False, status_code_or_tuple)`` on skip or failure.
     """
+    # Defensive check: callers always pass a 16-byte key from a validated
+    # 32-char hex string, but guard against accidental misuse.
+    if len(key_bytes) < 16:
+        return False, ("raw_error", "key_too_short")
+
     tmp_path = output_path + ".tmp"
 
     try:
