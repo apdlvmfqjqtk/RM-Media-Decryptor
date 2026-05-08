@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import time
 from typing import NamedTuple
 
@@ -329,30 +330,19 @@ def decrypt_asset(input_path: str, output_path: str, key_bytes: bytes):
             if classification != "ok":
                 return False, classification
 
-            # XOR the 16 encrypted bytes with the key.
-            header = bytearray(header_data[16:32])
-            for idx in range(16):
-                header[idx] ^= key_bytes[idx % 16]
+            # XOR the 16 encrypted bytes against the first 16 bytes of the key.
+            header = bytes(a ^ b for a, b in zip(header_data[16:32], key_bytes[:16]))
 
             # Verify the decrypted header matches the expected file signature.
-            header_bytes = bytes(header)
-            output_lower = output_path.lower()
-            if output_lower.endswith(".png") and not header_bytes.startswith(PNG_SIGNATURE):
-                return False, "bad_png"
-            if output_lower.endswith(".ogg") and not header_bytes.startswith(OGG_SIGNATURE):
-                return False, "bad_ogg"
-            if output_lower.endswith(".m4a") and not is_m4a_signature(header_bytes):
-                return False, "bad_m4a"
+            sig_error = _verify_signature(output_path, header)
+            if sig_error is not None:
+                return False, sig_error
 
             # Write decrypted header + remaining file data to a temp file,
             # then atomically replace the destination.
             with open(tmp_path, "wb") as fout:
                 fout.write(header)
-                while True:
-                    chunk = fin.read(65536)
-                    if not chunk:
-                        break
-                    fout.write(chunk)
+                shutil.copyfileobj(fin, fout, length=65536)
 
         os.replace(tmp_path, output_path)
         return True, ""
@@ -363,6 +353,25 @@ def decrypt_asset(input_path: str, output_path: str, key_bytes: bytes):
     except Exception as e:
         _cleanup_tmp(tmp_path)
         return False, ("raw_error", str(e) or "unknown_error")
+
+
+# Output-extension -> (validator, error_code) for the post-XOR header check.
+_SIGNATURE_CHECKS = {
+    ".png": (lambda h: h.startswith(PNG_SIGNATURE), "bad_png"),
+    ".ogg": (lambda h: h.startswith(OGG_SIGNATURE), "bad_ogg"),
+    ".m4a": (is_m4a_signature, "bad_m4a"),
+}
+
+
+def _verify_signature(output_path: str, header: bytes) -> str | None:
+    """Return an error code if *header* doesn't match the expected magic bytes
+    for *output_path*'s extension, otherwise None."""
+    ext = os.path.splitext(output_path)[1].lower()
+    check = _SIGNATURE_CHECKS.get(ext)
+    if check is None:
+        return None
+    validator, error_code = check
+    return None if validator(header) else error_code
 
 
 def _cleanup_tmp(tmp_path: str) -> None:
