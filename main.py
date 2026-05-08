@@ -26,12 +26,13 @@ Keyboard shortcuts:
 Designed for PyInstaller --onedir --windowed packaging.
 """
 
+import concurrent.futures
+import ctypes
 import os
 import pathlib
 import sys
 import threading
 import time
-import ctypes
 from ctypes import wintypes
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -264,6 +265,9 @@ PROGRESS_LOG_BUCKET    = 5                  # log every N % progress
 UI_THROTTLE_SEC        = 0.05               # min interval between UI progress updates
 LOG_MAX_LINES          = 5000               # auto-trim threshold for the log textbox
 LOG_TRIM_TARGET        = 2500               # how many lines to keep after a trim
+# Capped at 4 — RPG Maker assets are small and I/O bound; more workers
+# trash HDD seek time without helping SSD measurably past this point.
+DECRYPT_WORKERS        = min(os.cpu_count() or 4, 4)
 
 # Fixed widths for buttons that hold translated text — locks the layout
 # to the Korean baseline so EN/JA can't shift columns.  The three folder/
@@ -903,22 +907,24 @@ class DecrypterApp:
         except Exception:
             return False
 
+    # Simple status_code -> translation_key mapping.
+    _KEY_STATUS_TRANS = {
+        "not_found":   "status_not_found",
+        "key_missing": "status_key_missing",
+        "key_empty":   "status_key_empty",
+        "key_non_hex": "status_key_non_hex",
+        "ok":          "status_ok",
+    }
+
     def _format_key_status(self, status: str, extra) -> str:
-        if status == "not_found":
-            return self.t("status_not_found")
+        # Codes that need to embed *extra* in the translation get the
+        # explicit branches; everything else flows through the dict.
         if status == "read_error":
             return self.t("status_read_error", error=extra)
-        if status == "key_missing":
-            return self.t("status_key_missing")
-        if status == "key_empty":
-            return self.t("status_key_empty")
         if status == "key_bad_length":
             return self.t("status_key_bad_length", length=extra)
-        if status == "key_non_hex":
-            return self.t("status_key_non_hex")
-        if status == "ok":
-            return self.t("status_ok")
-        return status
+        text_key = self._KEY_STATUS_TRANS.get(status)
+        return self.t(text_key) if text_key else status
 
     def _format_decrypt_error(self, reason) -> str:
         """Translate rpg_core failure codes into user-facing messages.
@@ -1244,6 +1250,105 @@ class DecrypterApp:
 
         return target_files, unsupported_count, plain_media_counts
 
+    @staticmethod
+    def _compute_game_name(input_dir: str) -> str:
+        """Derive a safe game-name folder from *input_dir*.
+
+        If the selected folder is named ``www`` (RPG Maker MV layout) the real
+        game name lives one level up. Degenerate names (``.``, ``..``, "") are
+        flattened to ``""`` so they cannot escape the output directory.
+        """
+        base = os.path.basename(input_dir)
+        name = os.path.basename(os.path.dirname(input_dir)) if base == "www" else base
+        return "" if name in ("", ".", "..") else name
+
+    @staticmethod
+    def _compute_target_dir(
+        input_dir: str, output_dir: str, root_dir: str, game_name: str
+    ) -> str:
+        """Mirror *root_dir* under *output_dir*, inserting *game_name* as a
+        parent of the first ``img`` / ``audio`` component."""
+        relative_dir = os.path.relpath(root_dir, input_dir)
+        parts = pathlib.PurePath(relative_dir).parts
+        new_parts = list(parts)
+        if game_name:
+            for i, p in enumerate(parts):
+                if p in ("img", "audio"):
+                    new_parts.insert(i, game_name)
+                    break
+        sub = os.path.join(*new_parts) if new_parts else relative_dir
+        return os.path.join(output_dir, sub)
+
+    def _prepare_tasks(
+        self,
+        target_files: list[tuple[str, str, str]],
+        input_dir: str,
+        output_dir: str,
+        overwrite: bool,
+        game_name: str,
+    ) -> list[tuple[str, str]]:
+        """Build (input_path, output_path) pairs and ensure target dirs exist.
+
+        Runs sequentially because ``unique_output_path`` and ``makedirs`` need
+        consistent FS state — they're cheap (just stat calls) compared to the
+        actual decrypt I/O that the worker pool will then run in parallel.
+        """
+        tasks: list[tuple[str, str]] = []
+        for root_dir, filename, ext in target_files:
+            input_path = os.path.join(root_dir, filename)
+            target_dir = self._compute_target_dir(
+                input_dir, output_dir, root_dir, game_name
+            )
+            os.makedirs(target_dir, exist_ok=True)
+            stem, _  = os.path.splitext(filename)
+            desired  = os.path.join(target_dir, stem + EXT_MAP[ext])
+            output_path = desired if overwrite else unique_output_path(desired)
+            tasks.append((input_path, output_path))
+        return tasks
+
+    def _maybe_log_progress(self, total: int, last_bucket: int) -> int:
+        """Log a progress line if a new PROGRESS_LOG_BUCKET threshold was
+        crossed. Returns the (possibly updated) last bucket."""
+        percent = int((self.processed_files / total) * 100)
+        bucket  = (percent // PROGRESS_LOG_BUCKET) * PROGRESS_LOG_BUCKET
+        if bucket > last_bucket or self.processed_files == total:
+            self.log(
+                self.t(
+                    "progress_log",
+                    percent=percent,
+                    processed=self.processed_files,
+                    total=total,
+                )
+            )
+            return bucket
+        return last_bucket
+
+    def _maybe_emit_ui_update(self, total: int, start_time: float) -> None:
+        """Schedule a throttled progress bar + status label update."""
+        now = time.monotonic()
+        if (
+            now - self._last_ui_update < UI_THROTTLE_SEC
+            and self.processed_files != total
+        ):
+            return
+        self._last_ui_update = now
+
+        elapsed = now - start_time
+        if self.processed_files >= 3 and elapsed > 0:
+            avg = elapsed / self.processed_files
+            eta_seconds = max(0, (total - self.processed_files) * avg)
+        else:
+            eta_seconds = None
+
+        pct       = self.processed_files / total
+        processed = self.processed_files
+        percent   = int(pct * 100)
+        self.root.after(
+            0,
+            lambda v=pct, p=processed, t=total, pc=percent, e=eta_seconds:
+                self._update_progress(v, p, t, pc, e),
+        )
+
     def _run_decrypt_loop(
         self,
         target_files: list[tuple[str, str, str]],
@@ -1252,132 +1357,68 @@ class DecrypterApp:
         output_dir: str,
         overwrite: bool = False,
     ) -> dict:
-        """Decrypt each file in *target_files*. Returns aggregated stats."""
-        success_count = 0
-        fail_count    = 0
-        skip_count    = 0
+        """Decrypt every file in *target_files* using a thread pool. Returns
+        aggregated stats. Decryption is I/O bound, so the GIL is fine and
+        multiple workers give a clear speed-up on SSDs."""
+        success_count = fail_count = skip_count = 0
         failed_files: list[tuple[str, str]] = []
-        last_logged_bucket = 0
-        cancelled_in_loop  = False
+        last_bucket = 0
+        cancelled_in_loop = False
 
-        # Wall-clock anchor for ETA estimation. monotonic() never goes backwards.
         start_time = time.monotonic()
-
-        # Parse the hex key once; pass raw bytes to avoid per-file conversion.
-        key_bytes = bytes.fromhex(key)
-
-        # Resolve the game name once — constant for the entire batch.
-        # If the input folder is named "www", the real game name is one level up.
-        _base_folder = os.path.basename(input_dir)
-        game_name = (
-            os.path.basename(os.path.dirname(input_dir))
-            if _base_folder == "www"
-            else _base_folder
+        key_bytes  = bytes.fromhex(key)
+        game_name  = self._compute_game_name(input_dir)
+        tasks      = self._prepare_tasks(
+            target_files, input_dir, output_dir, overwrite, game_name
         )
-        # Guard against degenerate folder names (".", "..") that could escape output_dir.
-        if game_name in ("", ".", ".."):
-            game_name = ""
+        total = len(tasks)
 
-        total = len(target_files)
-
-        for root_dir, filename, ext in target_files:
-            # Cancellation check at the top of each iteration.
-            if self._cancel_event.is_set():
-                cancelled_in_loop = True
-                self.log(self.t("cancel_log"))
-                break
-
-            input_path   = os.path.join(root_dir, filename)
-            relative_dir = os.path.relpath(root_dir, input_dir)
-
-            # Insert the game name as a *parent* folder before the first
-            # "img" or "audio" component, producing  "gamename/img/face/A.png"
-            # rather than the older "gamename-img/face/A.png" (which mashed
-            # the names into a single segment).
-            parts = pathlib.PurePath(relative_dir).parts
-            new_parts = list(parts)
-            if game_name:
-                for i, p in enumerate(parts):
-                    if p in ("img", "audio"):
-                        new_parts.insert(i, game_name)
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=DECRYPT_WORKERS
+        ) as ex:
+            futures = {
+                ex.submit(decrypt_asset, ip, op, key_bytes): ip
+                for ip, op in tasks
+            }
+            try:
+                for fut in concurrent.futures.as_completed(futures):
+                    if self._cancel_event.is_set():
+                        cancelled_in_loop = True
+                        self.log(self.t("cancel_log"))
                         break
-            new_relative_dir = os.path.join(*new_parts) if new_parts else relative_dir
 
-            target_dir = os.path.join(output_dir, new_relative_dir)
-            os.makedirs(target_dir, exist_ok=True)
+                    input_path = futures[fut]
+                    try:
+                        ok, reason = fut.result()
+                    except Exception as e:
+                        ok, reason = False, ("raw_error", str(e) or "unknown_error")
 
-            stem, _        = os.path.splitext(filename)
-            desired_output = os.path.join(target_dir, stem + EXT_MAP[ext])
-            # Overwrite mode skips the _N suffix dance — decrypt_asset
-            # uses a tmp file + os.replace so this is atomic.
-            output_path    = (
-                desired_output if overwrite else unique_output_path(desired_output)
-            )
+                    self.processed_files += 1
+                    if ok:
+                        success_count += 1
+                    elif reason in SKIP_REASONS:
+                        skip_count += 1
+                    else:
+                        fail_count += 1
+                        failed_files.append(
+                            (input_path, self._format_decrypt_error(reason))
+                        )
 
-            ok, reason = decrypt_asset(input_path, output_path, key_bytes)
-
-            self.processed_files += 1
-
-            if ok:
-                success_count += 1
-            elif reason in SKIP_REASONS:
-                skip_count += 1
-            else:
-                fail_count += 1
-                failed_files.append((input_path, self._format_decrypt_error(reason)))
-
-            # Progress logging at PROGRESS_LOG_BUCKET % intervals.
-            percent         = int((self.processed_files / total) * 100)
-            progress_bucket = (percent // PROGRESS_LOG_BUCKET) * PROGRESS_LOG_BUCKET
-            should_log      = (
-                progress_bucket > last_logged_bucket
-                or self.processed_files == total
-            )
-            if should_log:
-                last_logged_bucket = progress_bucket
-                self.log(
-                    self.t(
-                        "progress_log",
-                        percent=percent,
-                        processed=self.processed_files,
-                        total=total,
-                    )
-                )
-
-            # ETA — only meaningful after a few files complete.
-            elapsed = time.monotonic() - start_time
-            if self.processed_files >= 3 and elapsed > 0:
-                avg = elapsed / self.processed_files
-                eta_seconds = max(0, (total - self.processed_files) * avg)
-            else:
-                eta_seconds = None
-
-            # Update progress bar + status label on the main thread.
-            # Throttle to UI_THROTTLE_SEC so a 50k-file batch doesn't queue
-            # 50k lambdas onto the Tk event loop. Always emit on the last
-            # file so the bar lands exactly on 100%.
-            now = time.monotonic()
-            if (
-                now - self._last_ui_update >= UI_THROTTLE_SEC
-                or self.processed_files == total
-            ):
-                self._last_ui_update = now
-                pct       = self.processed_files / total
-                processed = self.processed_files
-                self.root.after(
-                    0,
-                    lambda v=pct, p=processed, t=total, pc=percent, e=eta_seconds:
-                        self._update_progress(v, p, t, pc, e),
-                )
+                    last_bucket = self._maybe_log_progress(total, last_bucket)
+                    self._maybe_emit_ui_update(total, start_time)
+            finally:
+                if cancelled_in_loop:
+                    # cancel_futures is 3.9+; project requires 3.10+.
+                    ex.shutdown(wait=False, cancel_futures=True)
 
         return {
-            "success_count":      success_count,
-            "fail_count":         fail_count,
-            "skip_count":         skip_count,
-            "failed_files":       failed_files,
-            "cancelled_in_loop":  cancelled_in_loop,
-            "total":              total,
-            "game_name":          game_name,
+            "success_count":     success_count,
+            "fail_count":        fail_count,
+            "skip_count":        skip_count,
+            "failed_files":      failed_files,
+            "cancelled_in_loop": cancelled_in_loop,
+            "total":             total,
+            "game_name":         game_name,
         }
 
     def _log_summary(self, stats: dict, unsupported_count: int) -> None:
