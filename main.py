@@ -109,6 +109,8 @@ _gdi32.RemoveFontResourceExW.restype  = wintypes.BOOL
 
 _user32 = ctypes.WinDLL("user32", use_last_error=True)
 
+APP_VERSION = "1.2.0"
+
 PRETENDARD_FAMILY    = "Pretendard"
 PRETENDARD_JP_FAMILY = "Pretendard JP"
 
@@ -324,7 +326,7 @@ class DecrypterApp:
         ctk.set_default_color_theme("blue")
 
         self.root = root
-        self.root.title("RPG Decrypter")
+        self.root.title(f"RPG Decrypter v{APP_VERSION}")
         self.set_window_icon()
 
         # Apple-style fixed-size window — non-resizable so the carefully
@@ -509,7 +511,7 @@ class DecrypterApp:
     # Language / appearance
     # ------------------------------------------------------------------
     def apply_language(self, log_change: bool = True, save: bool = True) -> None:
-        self.root.title(self.t("window_title"))
+        self.root.title(f"{self.t('window_title')} v{APP_VERSION}")
         self._refresh_fonts()
 
         # Re-text every registered widget by translation key. The dark_mode
