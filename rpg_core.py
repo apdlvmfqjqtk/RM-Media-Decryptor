@@ -273,6 +273,13 @@ def unique_output_path(path: str) -> str:
 # Decryption
 # ---------------------------------------------------------------------------
 
+# Copy buffer size for the unencrypted body of each file.
+# Python's own shutil.copyfile uses a 1 MiB buffer on Windows (vs the 64 KiB
+# default of shutil.copyfileobj) and benchmarks 20-40% faster on large media
+# files. RPG Maker audio (.ogg/.m4a) routinely runs into multi-MB territory,
+# so we adopt the same Windows-tuned size.
+COPY_BUFSIZE = 1024 * 1024
+
 def classify_input_header(header_data: bytes) -> str:
     """Classify the first 32 bytes of a file.
 
@@ -342,7 +349,7 @@ def decrypt_asset(input_path: str, output_path: str, key_bytes: bytes):
             # then atomically replace the destination.
             with open(tmp_path, "wb") as fout:
                 fout.write(header)
-                shutil.copyfileobj(fin, fout, length=65536)
+                shutil.copyfileobj(fin, fout, length=COPY_BUFSIZE)
 
         os.replace(tmp_path, output_path)
         return True, ""

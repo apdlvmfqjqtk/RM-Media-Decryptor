@@ -109,7 +109,7 @@ _gdi32.RemoveFontResourceExW.restype  = wintypes.BOOL
 
 _user32 = ctypes.WinDLL("user32", use_last_error=True)
 
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.2.2"
 
 PRETENDARD_FAMILY    = "Pretendard"
 PRETENDARD_JP_FAMILY = "Pretendard JP"
