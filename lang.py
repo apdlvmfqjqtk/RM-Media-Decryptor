@@ -49,6 +49,7 @@ TEXT = {
         "target_image":     "이미지 파일만",
         "target_audio":     "오디오 파일만",
         "auto_open_label":  "완료 후 결과 폴더 자동 열기",
+        "overwrite_label":  "기존 파일 덮어쓰기 (suffix _1 미사용)",
 
         # fields
         "input_placeholder":  "게임 폴더를 선택하세요",
@@ -129,6 +130,8 @@ TEXT = {
         "key_search_failed":      "[!] System.json에서 유효한 키를 찾지 못했습니다.",
         "unencrypted_game":       "[i] 이 게임은 암호화되어 있지 않습니다. 복호화가 필요 없습니다.",
         "encrypted_no_key":       "[!] 암호화된 게임이지만 System.json에서 키를 찾지 못했습니다. 직접 입력해 주세요.",
+        "not_rpg_folder_title":   "폴더 확인",
+        "not_rpg_folder_msg":     "선택한 폴더가 RPG Maker 게임 폴더로 보이지 않습니다.\n(data, www, img, audio 등이 없음)\n\n그래도 진행하시겠습니까?",
 
         # appearance / language change
         "lang_changed": "[Lang] 언어가 한국어로 변경되었습니다.",
@@ -183,6 +186,7 @@ TEXT = {
         "target_image":     "Images only",
         "target_audio":     "Audio only",
         "auto_open_label":  "Open output folder when done",
+        "overwrite_label":  "Overwrite existing files (no _1 suffix)",
 
         "input_placeholder":  "Select the game folder",
         "output_placeholder": "Folder for the decrypted files",
@@ -253,6 +257,8 @@ TEXT = {
         "key_search_failed":      "[!] Could not find a valid key in any System.json.",
         "unencrypted_game":       "[i] This game is not encrypted - no decryption is needed.",
         "encrypted_no_key":       "[!] Encrypted game detected, but no key found in System.json. Please enter the key manually.",
+        "not_rpg_folder_title":   "Confirm folder",
+        "not_rpg_folder_msg":     "The selected folder does not look like an RPG Maker game folder.\n(no data, www, img, audio, etc.)\n\nProceed anyway?",
 
         "lang_changed": "[Lang] Language changed to English.",
         "mode_dark":    "[Dark] Dark mode enabled.",
@@ -303,6 +309,7 @@ TEXT = {
         "target_image":     "画像ファイルのみ",
         "target_audio":     "オーディオのみ",
         "auto_open_label":  "完了後に出力フォルダーを自動で開く",
+        "overwrite_label":  "既存ファイルを上書き (_1 サフィックスなし)",
 
         "input_placeholder":  "ゲームフォルダーを選択してください",
         "output_placeholder": "復号後のファイルを保存するフォルダー",
@@ -373,6 +380,8 @@ TEXT = {
         "key_search_failed":      "[!] 有効なキーを含む System.json が見つかりませんでした。",
         "unencrypted_game":       "[i] このゲームは暗号化されていません。復号は不要です。",
         "encrypted_no_key":       "[!] 暗号化ゲームですが System.json からキーを取得できませんでした。手動で入力してください。",
+        "not_rpg_folder_title":   "フォルダー確認",
+        "not_rpg_folder_msg":     "選択したフォルダーは RPG Maker ゲームフォルダーには見えません。\n(data, www, img, audio などがありません)\n\nそれでも続行しますか?",
 
         "lang_changed": "[Lang] 言語を日本語に変更しました。",
         "mode_dark":    "[Dark] ダークモードに切り替えました。",

@@ -52,6 +52,7 @@ def _sanitize(data: dict) -> dict:
         "appearance":   appearance  if appearance  in VALID_APPEARANCES  else "dark",
         "target_mode":  target_mode if target_mode in VALID_TARGET_MODES else "both",
         "auto_open":    bool(data.get("auto_open", False)),
+        "overwrite":    bool(data.get("overwrite", False)),
     }
 
 
@@ -106,6 +107,7 @@ def save_config_data(
     appearance:   str  = "dark",
     target_mode:  str  = "both",
     auto_open:    bool = False,
+    overwrite:    bool = False,
 ) -> tuple[bool, Exception | None]:
     """Persist only non-sensitive UI settings.
 
@@ -119,6 +121,7 @@ def save_config_data(
             "appearance":  appearance,
             "target_mode": target_mode,
             "auto_open":   auto_open,
+            "overwrite":   overwrite,
         }
     )
 

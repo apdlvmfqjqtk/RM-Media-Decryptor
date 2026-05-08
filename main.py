@@ -209,17 +209,18 @@ FONT_ROLES = {
 }
 
 FONT_MONO_ROLES = {
-    "mono":            ("Consolas",  11, "normal"),
-    "mono_key":        ("Consolas",  12, "normal"),
-    "mono_log":        ("CJK_SAFE",  10, "normal"),
-    "mono_log_header": ("CJK_SAFE",   9, "bold"),
+    "mono":     ("Consolas",  11, "normal"),
+    "mono_key": ("Consolas",  12, "normal"),
+    "mono_log": ("CJK_SAFE",  10, "normal"),
 }
 
 
 # =====================================================================
 # 5. Color tokens (light / dark)
 # =====================================================================
-ctk.set_default_color_theme("blue")
+# NOTE: ctk.set_default_color_theme is invoked from DecrypterApp.__init__
+# rather than at module import time, so importing this module has no
+# global side effects (helpful for tests and tooling).
 
 COLORS = {
     "bg":             ("#F5F5F7", "#161618"),
@@ -260,6 +261,9 @@ STATUS_LABEL_HEIGHT    = 18
 NOTIFY_DELAY_MS        = 0                  # delay before completion popup
 CLOSE_POLL_INTERVAL_MS = 100                # interval for waiting on cancel-then-close
 PROGRESS_LOG_BUCKET    = 5                  # log every N % progress
+UI_THROTTLE_SEC        = 0.05               # min interval between UI progress updates
+LOG_MAX_LINES          = 5000               # auto-trim threshold for the log textbox
+LOG_TRIM_TARGET        = 2500               # how many lines to keep after a trim
 
 # Fixed widths for buttons that hold translated text — locks the layout
 # to the Korean baseline so EN/JA can't shift columns.  The three folder/
@@ -290,6 +294,9 @@ PLAIN_MEDIA_EXTS_BY_TARGET = {
     "audio": {".ogg", ".m4a"},
 }
 
+# Subdirectories that strongly indicate an RPG Maker project root.
+RPG_FOLDER_INDICATORS = ("data", "www", "img", "audio", "js")
+
 # Skip-only failure codes that should NOT count as a real failure.
 SKIP_REASONS = {
     "too_small",
@@ -304,15 +311,14 @@ SKIP_REASONS = {
 # 8. Main application
 # =====================================================================
 class DecrypterApp:
-    # Reserved for widgets that share a translation key. Currently empty —
-    # folder buttons now have distinct keys (folder_button_game /
-    # folder_button_output) so the main re-text loop handles them directly.
-    _WIDGETS_ALIAS: dict[str, str] = {}
-
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
     def __init__(self, root: ctk.CTk) -> None:
+        # Per-instance side effect — keeps importing main.py free of
+        # global CTk state changes.
+        ctk.set_default_color_theme("blue")
+
         self.root = root
         self.root.title("RPG Decrypter")
         self.set_window_icon()
@@ -334,6 +340,8 @@ class DecrypterApp:
         self._cancel_event         = threading.Event()
         self._closing_after_cancel = False
         self._key_shown            = False  # key field hidden by default for security
+        # UI-update throttling for the per-file progress callbacks.
+        self._last_ui_update       = 0.0
 
         # Key entry alert state. Holds a translation key like
         # "encrypted_no_key" when the auto-detect found no key for an
@@ -352,10 +360,10 @@ class DecrypterApp:
         self.language_var    = tk.StringVar(value=LANGUAGE_OPTIONS[self.current_lang])
         self.target_mode_var = tk.StringVar()
         self.auto_open_var   = tk.BooleanVar(value=False)
+        self.overwrite_var   = tk.BooleanVar(value=False)
 
         # Widget bookkeeping
         self.widgets: dict[str, tk.Widget]                       = {}
-        self.widgets_alias: dict[str, str]                       = dict(self._WIDGETS_ALIAS)
         self.font_registry: list[tuple[tk.Widget, str]]          = []
         self.placeholder_widgets: list[tuple[ctk.CTkEntry, str]] = []
 
@@ -418,7 +426,7 @@ class DecrypterApp:
 
     def _font(self, role: str) -> tuple:
         """Return a font tuple for *role* using the current language family."""
-        if role in ("mono_log", "mono_log_header"):
+        if role == "mono_log":
             _, size, weight = FONT_MONO_ROLES[role]
             return (FONT_LOADER.multilingual_family(), size, weight)
         if role in FONT_MONO_ROLES:
@@ -478,6 +486,7 @@ class DecrypterApp:
             self.current_target_mode = target_mode
 
         self.auto_open_var.set(bool(data.get("auto_open", False)))
+        self.overwrite_var.set(bool(data.get("overwrite", False)))
 
     def save_config(self) -> bool:
         ok, error = save_config_data(
@@ -486,6 +495,7 @@ class DecrypterApp:
             appearance=self.current_appearance,
             target_mode=self.current_target_mode,
             auto_open=self.auto_open_var.get(),
+            overwrite=self.overwrite_var.get(),
         )
         if not ok:
             self.log(self.t("config_saved_fail", error=error))
@@ -507,14 +517,6 @@ class DecrypterApp:
             if key in TEXT[self.current_lang]:
                 try:
                     widget.configure(text=self.t(key))
-                except Exception:
-                    pass
-
-        # Aliases: multiple widgets sharing the same translation key.
-        for widget_key, text_key in self.widgets_alias.items():
-            if widget_key in self.widgets:
-                try:
-                    self.widgets[widget_key].configure(text=self.t(text_key))
                 except Exception:
                     pass
 
@@ -747,6 +749,16 @@ class DecrypterApp:
         return "break"
 
     def _handle_cancel_shortcut(self, event=None) -> str:
+        # If the key entry has focus, treat Esc as "blur the field" rather
+        # than "cancel the running job" — keystrokes meant to dismiss the
+        # entry shouldn't kill an in-flight batch.
+        if hasattr(self, "entry_key"):
+            try:
+                if self.root.focus_get() is self.entry_key:
+                    self.root.focus_set()
+                    return "break"
+            except Exception:
+                pass
         if self.is_processing:
             self.cancel_processing()
         return "break"
@@ -831,6 +843,17 @@ class DecrypterApp:
         if not selected_dir:
             return
 
+        # Sanity check: warn before scanning a folder that is unlikely to be
+        # an RPG Maker game (avoids accidentally crawling C:\ or a home dir).
+        if not self._looks_like_rpg_folder(selected_dir):
+            if not messagebox.askyesno(
+                self.t("not_rpg_folder_title"),
+                self.t("not_rpg_folder_msg"),
+                parent=self.root,
+                icon="warning",
+            ):
+                return
+
         # Autocorrect: if "<root>/www/img" exists this is an MV layout.
         input_dir = (
             os.path.join(selected_dir, "www")
@@ -865,8 +888,20 @@ class DecrypterApp:
             # No System.json found at all.
             self.log(self.t("key_search_failed"))
             self._set_key_alert(None)
+        # NOTE: no save_config() here — input_dir and key are intentionally
+        # not persisted, and no other persisted setting changed.
 
-        self.save_config()
+    @staticmethod
+    def _looks_like_rpg_folder(path: str) -> bool:
+        """Return True if *path* contains at least one RPG Maker indicator
+        subfolder (data/www/img/audio/js)."""
+        try:
+            return any(
+                os.path.isdir(os.path.join(path, ind))
+                for ind in RPG_FOLDER_INDICATORS
+            )
+        except Exception:
+            return False
 
     def _format_key_status(self, status: str, extra) -> str:
         if status == "not_found":
@@ -1021,6 +1056,15 @@ class DecrypterApp:
                     self.log_area.tag_add(severity, line_start, line_end)
                 except Exception:
                     pass
+            # Auto-trim so the log textbox does not grow unbounded on
+            # huge batches (50k+ files would otherwise pin memory).
+            try:
+                line_count = int(self.log_area.index("end-1c").split(".")[0])
+                if line_count > LOG_MAX_LINES:
+                    delete_to = line_count - LOG_TRIM_TARGET
+                    self.log_area.delete("1.0", f"{delete_to}.0")
+            except Exception:
+                pass
             self.log_area.see(tk.END)
             self.log_area.configure(state="disabled")
         except Exception:
@@ -1057,6 +1101,7 @@ class DecrypterApp:
         self.is_processing   = True
         self.processed_files = 0
         self.total_files     = 0
+        self._last_ui_update = 0.0
         self._cancel_event.clear()
 
         # Switch run button to cancel mode.
@@ -1076,7 +1121,13 @@ class DecrypterApp:
 
         worker = threading.Thread(
             target=self.process_files,
-            args=(key, input_dir, output_dir, self.current_target_mode),
+            args=(
+                key,
+                input_dir,
+                output_dir,
+                self.current_target_mode,
+                self.overwrite_var.get(),
+            ),
             daemon=True,
         )
         worker.start()
@@ -1093,7 +1144,12 @@ class DecrypterApp:
             pass
 
     def process_files(
-        self, key: str, input_dir: str, output_dir: str, target_mode: str
+        self,
+        key: str,
+        input_dir: str,
+        output_dir: str,
+        target_mode: str,
+        overwrite: bool,
     ) -> None:
         """Worker entry point: scan, decrypt, summarise."""
         self.log(self.t("start_log"))
@@ -1127,7 +1183,9 @@ class DecrypterApp:
                 self.t("progress_log", percent=0, processed=0, total=self.total_files)
             )
 
-            stats = self._run_decrypt_loop(target_files, key, input_dir, output_dir)
+            stats = self._run_decrypt_loop(
+                target_files, key, input_dir, output_dir, overwrite
+            )
 
             # Summary + notification only when not cancelled mid-loop.
             if not stats["cancelled_in_loop"]:
@@ -1138,7 +1196,17 @@ class DecrypterApp:
                 )
 
         except Exception as e:
-            self.log(self.t("fatal_error", error=e))
+            err_msg = self.t("fatal_error", error=e)
+            self.log(err_msg)
+            # Surface fatal errors as a popup too — without this, the user
+            # only sees a single log line and might not realise the run
+            # blew up rather than completed normally.
+            self.root.after(
+                0,
+                lambda m=err_msg: messagebox.showerror(
+                    self.t("error_title"), m, parent=self.root
+                ),
+            )
 
         finally:
             self.finish_processing()
@@ -1182,6 +1250,7 @@ class DecrypterApp:
         key: str,
         input_dir: str,
         output_dir: str,
+        overwrite: bool = False,
     ) -> dict:
         """Decrypt each file in *target_files*. Returns aggregated stats."""
         success_count = 0
@@ -1239,7 +1308,11 @@ class DecrypterApp:
 
             stem, _        = os.path.splitext(filename)
             desired_output = os.path.join(target_dir, stem + EXT_MAP[ext])
-            output_path    = unique_output_path(desired_output)
+            # Overwrite mode skips the _N suffix dance — decrypt_asset
+            # uses a tmp file + os.replace so this is atomic.
+            output_path    = (
+                desired_output if overwrite else unique_output_path(desired_output)
+            )
 
             ok, reason = decrypt_asset(input_path, output_path, key_bytes)
 
@@ -1280,13 +1353,22 @@ class DecrypterApp:
                 eta_seconds = None
 
             # Update progress bar + status label on the main thread.
-            pct       = self.processed_files / total
-            processed = self.processed_files
-            self.root.after(
-                0,
-                lambda v=pct, p=processed, t=total, pc=percent, e=eta_seconds:
-                    self._update_progress(v, p, t, pc, e),
-            )
+            # Throttle to UI_THROTTLE_SEC so a 50k-file batch doesn't queue
+            # 50k lambdas onto the Tk event loop. Always emit on the last
+            # file so the bar lands exactly on 100%.
+            now = time.monotonic()
+            if (
+                now - self._last_ui_update >= UI_THROTTLE_SEC
+                or self.processed_files == total
+            ):
+                self._last_ui_update = now
+                pct       = self.processed_files / total
+                processed = self.processed_files
+                self.root.after(
+                    0,
+                    lambda v=pct, p=processed, t=total, pc=percent, e=eta_seconds:
+                        self._update_progress(v, p, t, pc, e),
+                )
 
         return {
             "success_count":      success_count,
@@ -1372,8 +1454,10 @@ class DecrypterApp:
         if self._closing_after_cancel:
             return
 
+        # Subtle bell only — don't yank the window in front of whatever the
+        # user is doing now (lift() was too intrusive when batches finish in
+        # the background).
         self.root.bell()
-        self.root.lift()
 
         if stats["fail_count"] == 0:
             messagebox.showinfo(
@@ -1382,8 +1466,10 @@ class DecrypterApp:
                 parent=self.root,
             )
         else:
+            # Partial failure is still "done" — the warning icon conveys
+            # severity, the title shouldn't claim it was an outright failure.
             messagebox.showwarning(
-                self.t("warning_title"),
+                self.t("done_title"),
                 self.t("done_failed_msg", failed=stats["fail_count"]),
                 parent=self.root,
             )
@@ -1687,7 +1773,10 @@ class DecrypterApp:
             text_color=COLORS["text_primary"],
             corner_radius=RADIUS_CONTROL, height=32,
         )
-        self.entry_key.configure(font=self._font("mono_key"))
+        # Register so the font refresh path stays consistent with every
+        # other widget (mono_key is language-independent today, but using
+        # the same registration mechanism avoids future surprises).
+        self._register_font(self.entry_key, "mono_key")
         self.entry_key.pack(side="left", fill="x", expand=True, padx=(0, 8))
         self.placeholder_widgets.append((self.entry_key, "key_placeholder"))
 
@@ -1737,11 +1826,12 @@ class DecrypterApp:
 
         # Auto-open option — lives next to the output folder so it sits
         # exactly where users are configuring "where the result goes".
-        auto_open_box = ctk.CTkFrame(card2, fg_color="transparent")
-        auto_open_box.pack(fill="x", padx=12, pady=(0, 10))
+        options_box = ctk.CTkFrame(card2, fg_color="transparent")
+        options_box.pack(fill="x", padx=12, pady=(0, 10))
+
         self.widgets["auto_open_label"] = self._register_font(
             ctk.CTkCheckBox(
-                auto_open_box, text="",
+                options_box, text="",
                 variable=self.auto_open_var,
                 command=self.save_config,
                 fg_color=COLORS["accent"],
@@ -1753,7 +1843,25 @@ class DecrypterApp:
             ),
             "switch",
         )
-        self.widgets["auto_open_label"].pack(anchor="w")
+        self.widgets["auto_open_label"].pack(anchor="w", pady=(0, 4))
+
+        # Overwrite option — when enabled, decrypted files replace any
+        # existing file with the same name (instead of generating _1, _2…).
+        self.widgets["overwrite_label"] = self._register_font(
+            ctk.CTkCheckBox(
+                options_box, text="",
+                variable=self.overwrite_var,
+                command=self.save_config,
+                fg_color=COLORS["accent"],
+                hover_color=COLORS["accent_hover"],
+                border_color=COLORS["border"],
+                text_color=COLORS["text_secondary"],
+                checkmark_color="#ffffff",
+                corner_radius=RADIUS_CONTROL,
+            ),
+            "switch",
+        )
+        self.widgets["overwrite_label"].pack(anchor="w")
 
         # ── Run button (inside controls panel) ───────────────────────
         self.btn_run = ctk.CTkButton(
