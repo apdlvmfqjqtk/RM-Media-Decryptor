@@ -109,7 +109,7 @@ _gdi32.RemoveFontResourceExW.restype  = wintypes.BOOL
 
 _user32 = ctypes.WinDLL("user32", use_last_error=True)
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 
 PRETENDARD_FAMILY    = "Pretendard"
 PRETENDARD_JP_FAMILY = "Pretendard JP"
@@ -1886,10 +1886,11 @@ class DecrypterApp:
             ),
             "switch",
         )
-        self.widgets["auto_open_label"].pack(anchor="w", pady=(0, 4))
+        self.widgets["auto_open_label"].pack(side="left", anchor="w")
 
         # Overwrite option — when enabled, decrypted files replace any
         # existing file with the same name (instead of generating _1, _2…).
+        # Sits on the same row as auto-open with horizontal spacing between.
         self.widgets["overwrite_label"] = self._register_font(
             ctk.CTkCheckBox(
                 options_box, text="",
@@ -1904,7 +1905,7 @@ class DecrypterApp:
             ),
             "switch",
         )
-        self.widgets["overwrite_label"].pack(anchor="w")
+        self.widgets["overwrite_label"].pack(side="left", anchor="w", padx=(24, 0))
 
         # ── Run button (inside controls panel) ───────────────────────
         self.btn_run = ctk.CTkButton(
