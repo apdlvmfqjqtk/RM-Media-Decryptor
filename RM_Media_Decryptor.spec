@@ -33,6 +33,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['assets\\myicon.ico'],
+    version='version_info.py',
 )
 coll = COLLECT(
     exe,
