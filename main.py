@@ -1289,15 +1289,11 @@ class DecrypterApp:
         if self._closing_after_cancel:
             return
 
+        # Audio cue + log/status line are enough to signal success — no popup.
+        # Failures still pop up so the user notices something needs attention.
         self.root.bell()
 
-        if stats["fail_count"] == 0:
-            messagebox.showinfo(
-                self.t("done_title"),
-                self.t("done_success_msg", count=stats["success_count"]),
-                parent=self.root,
-            )
-        else:
+        if stats["fail_count"] > 0:
             messagebox.showwarning(
                 self.t("done_title"),
                 self.t("done_failed_msg", failed=stats["fail_count"]),
