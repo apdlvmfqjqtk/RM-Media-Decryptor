@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """Language options and translation strings for RPG Decrypter.
 
-All UI strings are kept ASCII-only outside of CJK letters/punctuation —
-no decorative geometric / arrow / ellipsis Unicode glyphs (which were
-rendering as missing-glyph boxes on the user's machine).
+Lite-rewrite notes:
+    The decorative header (app_title / subtitle / quick_guide / key_note)
+    and the dark-mode strings have been removed. Menu-bar items, worker
+    count, and priority labels have been added.
 """
 
 # =====================================================================
@@ -13,60 +14,48 @@ LANGUAGE_OPTIONS = {
     "ko": "한국어",
     "en": "English",
     "ja": "日本語",
+    "zh": "中文",
 }
 LANGUAGE_CODES_BY_LABEL = {label: code for code, label in LANGUAGE_OPTIONS.items()}
 
 
 # =====================================================================
 # 2. Translation strings
-#
-#    Terminology notes
-#      KO: uses "복호화"  (decryption / decrypt)
-#      EN: uses "decryption / decrypt"
-#      JA: uses "復号"   (no -化 suffix - modern standard usage)
 # =====================================================================
 TEXT = {
     "ko": {
-        # window / header
         "window_title": "RPG Decrypter",
-        "app_title":    "RPG Decrypter",
-        "app_subtitle": "RPG Maker MV/MZ 암호화 미디어 에셋을 복호화 합니다",
-        "quick_guide":  "1) 게임 폴더 선택   ->   2) 자동 키 추출   ->   3) 복호화 시작",
 
-        # sections (no decorative prefix - bold weight provides hierarchy)
-        "settings_section": "설정",
-        "section_game":     "원본 게임 폴더",
-        "section_output":   "결과물 저장 폴더",
+        # sections
+        "section_game":   "원본 게임 폴더",
+        "section_output": "결과물 저장 폴더",
+        "key_label":      "복호화 키",
 
-        # settings
-        "appearance_label": "화면 모드",
-        "language_label":   "언어",
-        "dark_mode":        "다크 모드",
-        "switch_dark":      "다크",
-        "switch_light":     "라이트",
-        "target_label":     "복호화 대상",
-        "target_both":      "이미지 + 오디오",
-        "target_image":     "이미지 파일만",
-        "target_audio":     "오디오 파일만",
-        "auto_open_label":  "완료 후 결과 폴더 자동 열기",
-        "overwrite_label":  "기존 파일 덮어쓰기 (suffix _1 미사용)",
+        # menu bar
+        "menu_language": "언어",
+        "menu_mode":     "대상",
+        "target_both":   "이미지 + 오디오",
+        "target_image":  "이미지 파일만",
+        "target_audio":  "오디오 파일만",
 
-        # fields
+        # checkbox
+        "auto_open_label": "완료 후 결과 폴더 자동 열기",
+
+        # placeholders
         "input_placeholder":  "게임 폴더를 선택하세요",
         "output_placeholder": "복호화된 파일이 저장될 폴더",
-        "key_label":          "복호화 키",
         "key_placeholder":    "System.json에서 자동 추출되거나 직접 입력 (저장되지 않음)",
 
         # buttons
-        "folder_button_game":   "게임 폴더 찾기",
-        "folder_button_output": "저장 위치 찾기",
+        "folder_button_game":   "폴더 선택",
+        "folder_button_output": "폴더 선택",
         "key_show":             "표시",
         "key_hide":             "숨기기",
         "run_button":           "복호화 시작",
         "cancel_button":        "취소",
         "cancelling_button":    "취소 중...",
 
-        # log header + log controls
+        # log header
         "log_header":              "LOG",
         "log_copy":                "복사",
         "log_clear":               "지우기",
@@ -78,12 +67,12 @@ TEXT = {
         "ctx_copy":  "복사",
         "ctx_paste": "붙여넣기",
 
-        # status label (below progress bar)
+        # status label
         "scan_status":    "스캔 중...",
         "decrypt_status": "복호화 중  {processed}/{total} ({percent}%)  |  {eta}",
         "cancel_status":   "취소되었습니다.",
         "complete_status": "복호화가 완료되었습니다.",
-        "shortcuts_hint":  "F5: 시작   |   Esc: 취소   |   Ctrl+L: 로그 지우기",
+        "idle_status":     "대기 중",
 
         # ETA formatting
         "eta_seconds":  "{s}초",
@@ -133,10 +122,9 @@ TEXT = {
         "not_rpg_folder_title":   "폴더 확인",
         "not_rpg_folder_msg":     "선택한 폴더가 RPG Maker 게임 폴더로 보이지 않습니다.\n(data, www, img, audio 등이 없음)\n\n그래도 진행하시겠습니까?",
 
-        # appearance / language change
+        # menu changes
         "lang_changed": "[Lang] 언어가 한국어로 변경되었습니다.",
-        "mode_dark":    "[Dark] 다크 모드로 전환되었습니다.",
-        "mode_light":   "[Light] 라이트 모드로 전환되었습니다.",
+        "mode_changed": "[Cfg] 복호화 대상: {label}",
 
         # processing
         "start_log":           "[Start] 복호화 작업을 시작합니다.",
@@ -161,40 +149,30 @@ TEXT = {
         "io_error":      "I/O 오류: {error}",
 
         # misc
-        "key_note":           "복호화 키는 설정 파일에 저장되지 않으며, 프로그램 실행 중에만 메모리에서 사용됩니다.",
-        "fatal_error":        "[Fatal] 프로그램 실행 중 치명적인 오류가 발생했습니다: {error}",
-        "fonts_missing_note": "[i] Pretendard 폰트 파일을 찾을 수 없어 시스템 기본 글꼴을 사용합니다.",
+        "fatal_error": "[Fatal] 프로그램 실행 중 치명적인 오류가 발생했습니다: {error}",
     },
 
     "en": {
         "window_title": "RPG Decrypter",
-        "app_title":    "RPG Decrypter",
-        "app_subtitle": "Decrypts RPG Maker MV/MZ encrypted media assets.",
-        "quick_guide":  "1) Pick game folder   ->   2) Auto-detect key   ->   3) Run",
 
-        "settings_section": "Settings",
-        "section_game":     "Source Game Folder",
-        "section_output":   "Output Folder",
+        "section_game":   "Source Game Folder",
+        "section_output": "Output Folder",
+        "key_label":      "Decryption Key",
 
-        "appearance_label": "Appearance",
-        "language_label":   "Language",
-        "dark_mode":        "Dark mode",
-        "switch_dark":      "Dark",
-        "switch_light":     "Light",
-        "target_label":     "Decryption Target",
-        "target_both":      "Images + Audio",
-        "target_image":     "Images only",
-        "target_audio":     "Audio only",
-        "auto_open_label":  "Open output folder when done",
-        "overwrite_label":  "Overwrite existing files (no _1 suffix)",
+        "menu_language": "Language",
+        "menu_mode":     "Mode",
+        "target_both":   "Images + Audio",
+        "target_image":  "Images only",
+        "target_audio":  "Audio only",
+
+        "auto_open_label": "Open output folder when done",
 
         "input_placeholder":  "Select the game folder",
         "output_placeholder": "Folder for the decrypted files",
-        "key_label":          "Decryption Key",
         "key_placeholder":    "Auto-detected from System.json or entered manually (not saved)",
 
-        "folder_button_game":   "Find Game Folder",
-        "folder_button_output": "Find Output Folder",
+        "folder_button_game":   "Select Folder",
+        "folder_button_output": "Select Folder",
         "key_show":             "Show",
         "key_hide":             "Hide",
         "run_button":           "Start Decryption",
@@ -215,7 +193,7 @@ TEXT = {
         "decrypt_status": "Decrypting  {processed}/{total} ({percent}%)  |  ETA {eta}",
         "cancel_status":   "Cancelled.",
         "complete_status": "Decryption complete.",
-        "shortcuts_hint":  "F5: Run   |   Esc: Cancel   |   Ctrl+L: Clear log",
+        "idle_status":     "Idle",
 
         "eta_seconds":  "{s}s",
         "eta_min_sec":  "{m}m {s}s",
@@ -261,8 +239,7 @@ TEXT = {
         "not_rpg_folder_msg":     "The selected folder does not look like an RPG Maker game folder.\n(no data, www, img, audio, etc.)\n\nProceed anyway?",
 
         "lang_changed": "[Lang] Language changed to English.",
-        "mode_dark":    "[Dark] Dark mode enabled.",
-        "mode_light":   "[Light] Light mode enabled.",
+        "mode_changed": "[Cfg] Target mode: {label}",
 
         "start_log":           "[Start] Starting decryption.",
         "scan_log":            "[Scan] Scanning input folder...",
@@ -284,40 +261,30 @@ TEXT = {
         "unknown_error": "Unknown error",
         "io_error":      "I/O error: {error}",
 
-        "key_note":           "The decryption key is not stored in the config file. It only lives in memory while the app is running.",
-        "fatal_error":        "[Fatal] A critical error occurred: {error}",
-        "fonts_missing_note": "[i] Pretendard font files were not found. Falling back to the system default font.",
+        "fatal_error": "[Fatal] A critical error occurred: {error}",
     },
 
     "ja": {
         "window_title": "RPG Decrypter",
-        "app_title":    "RPG Decrypter",
-        "app_subtitle": "RPG Maker MV/MZ で暗号化されたメディアアセットを復号します。",
-        "quick_guide":  "1) ゲームフォルダー選択   ->   2) キー自動取得   ->   3) 復号開始",
 
-        "settings_section": "設定",
-        "section_game":     "元ゲームフォルダー",
-        "section_output":   "出力フォルダー",
+        "section_game":   "元ゲームフォルダー",
+        "section_output": "出力フォルダー",
+        "key_label":      "復号キー",
 
-        "appearance_label": "表示モード",
-        "language_label":   "言語",
-        "dark_mode":        "ダークモード",
-        "switch_dark":      "ダーク",
-        "switch_light":     "ライト",
-        "target_label":     "復号対象",
-        "target_both":      "画像 + オーディオ",
-        "target_image":     "画像ファイルのみ",
-        "target_audio":     "オーディオのみ",
-        "auto_open_label":  "完了後に出力フォルダーを自動で開く",
-        "overwrite_label":  "既存ファイルを上書き (_1 サフィックスなし)",
+        "menu_language": "言語",
+        "menu_mode":     "対象",
+        "target_both":   "画像 + オーディオ",
+        "target_image":  "画像ファイルのみ",
+        "target_audio":  "オーディオのみ",
+
+        "auto_open_label": "完了後に出力フォルダーを自動で開く",
 
         "input_placeholder":  "ゲームフォルダーを選択してください",
         "output_placeholder": "復号後のファイルを保存するフォルダー",
-        "key_label":          "復号キー",
         "key_placeholder":    "System.json から自動取得、または手動入力(保存されません)",
 
-        "folder_button_game":   "ゲームフォルダーを開く",
-        "folder_button_output": "保存先を開く",
+        "folder_button_game":   "フォルダー選択",
+        "folder_button_output": "フォルダー選択",
         "key_show":             "表示",
         "key_hide":             "非表示",
         "run_button":           "復号開始",
@@ -338,7 +305,7 @@ TEXT = {
         "decrypt_status": "復号中  {processed}/{total} ({percent}%)  |  残り {eta}",
         "cancel_status":   "キャンセルされました。",
         "complete_status": "復号完了。",
-        "shortcuts_hint":  "F5: 実行   |   Esc: 中止   |   Ctrl+L: ログ消去",
+        "idle_status":     "待機中",
 
         "eta_seconds":  "{s} 秒",
         "eta_min_sec":  "{m} 分 {s} 秒",
@@ -384,8 +351,7 @@ TEXT = {
         "not_rpg_folder_msg":     "選択したフォルダーは RPG Maker ゲームフォルダーには見えません。\n(data, www, img, audio などがありません)\n\nそれでも続行しますか?",
 
         "lang_changed": "[Lang] 言語を日本語に変更しました。",
-        "mode_dark":    "[Dark] ダークモードに切り替えました。",
-        "mode_light":   "[Light] ライトモードに切り替えました。",
+        "mode_changed": "[Cfg] 復号対象: {label}",
 
         "start_log":           "[Start] 復号処理を開始します。",
         "scan_log":            "[Scan] 入力フォルダーを走査中...",
@@ -407,8 +373,118 @@ TEXT = {
         "unknown_error": "不明なエラー",
         "io_error":      "I/O エラー: {error}",
 
-        "key_note":           "復号キーは設定ファイルに保存されません。アプリ実行中のメモリ上にのみ保持されます。",
-        "fatal_error":        "[Fatal] 実行中に重大なエラーが発生しました: {error}",
-        "fonts_missing_note": "[i] Pretendard フォントが見つからないため、システム既定のフォントを使用します。",
+        "fatal_error": "[Fatal] 実行中に重大なエラーが発生しました: {error}",
+    },
+
+    "zh": {
+        "window_title": "RPG Decrypter",
+
+        "section_game":   "源游戏文件夹",
+        "section_output": "输出文件夹",
+        "key_label":      "解密密钥",
+
+        "menu_language": "语言",
+        "menu_mode":     "对象",
+        "target_both":   "图像 + 音频",
+        "target_image":  "仅图像",
+        "target_audio":  "仅音频",
+
+        "auto_open_label": "完成后自动打开输出文件夹",
+
+        "input_placeholder":  "请选择游戏文件夹",
+        "output_placeholder": "解密文件保存位置",
+        "key_placeholder":    "从 System.json 自动提取或手动输入(不保存)",
+
+        "folder_button_game":   "选择文件夹",
+        "folder_button_output": "选择文件夹",
+        "key_show":             "显示",
+        "key_hide":             "隐藏",
+        "run_button":           "开始解密",
+        "cancel_button":        "取消",
+        "cancelling_button":    "正在取消...",
+
+        "log_header":              "LOG",
+        "log_copy":                "复制",
+        "log_clear":               "清除",
+        "log_clear_confirm_title": "确认",
+        "log_clear_confirm_msg":   "确定要清除全部日志吗?",
+
+        "ctx_cut":   "剪切",
+        "ctx_copy":  "复制",
+        "ctx_paste": "粘贴",
+
+        "scan_status":    "扫描中...",
+        "decrypt_status": "解密中  {processed}/{total} ({percent}%)  |  剩余 {eta}",
+        "cancel_status":   "已取消。",
+        "complete_status": "解密完成。",
+        "idle_status":     "待机",
+
+        "eta_seconds":  "{s} 秒",
+        "eta_min_sec":  "{m} 分 {s} 秒",
+        "eta_hour_min": "{h} 小时 {m} 分",
+        "eta_unknown":  "-",
+
+        "select_game_dialog":   "选择源游戏文件夹",
+        "select_output_dialog": "选择输出文件夹",
+        "warning_title":        "警告",
+        "error_title":          "错误",
+        "done_title":           "完成",
+        "done_success_msg":     "已成功解密 {count} 个文件。",
+        "done_failed_msg":      "{failed} 个文件处理失败。请查看日志。",
+        "close_confirm_title":  "退出确认",
+        "close_confirm_msg":    "解密任务正在进行中。\n是否取消任务并退出?",
+
+        "missing_fields":      "请设置解密密钥、源文件夹和输出文件夹。",
+        "invalid_input_dir":   "源游戏文件夹不存在。",
+        "invalid_output_dir":  "输出文件夹不存在。",
+        "same_dir":            "为安全起见,输入文件夹和输出文件夹应不同。",
+        "output_inside_input": "为安全起见,输出文件夹不应位于输入文件夹内部。",
+        "key_empty":           "解密密钥为空。",
+        "key_len":             "解密密钥必须是 32 位 HEX 字符串。",
+        "key_hex":             "解密密钥包含非 HEX 字符。",
+
+        "config_loaded_fail": "[!] 读取配置文件失败: {error}",
+        "config_saved_fail":  "[!] 保存配置失败: {error}",
+
+        "key_search_header":      "[*] 开始自动检测 System.json:",
+        "key_search_path_check":  "    - 检查: {path}  ->  {status}",
+        "status_not_found":       "未找到",
+        "status_read_error":      "读取错误 ({error})",
+        "status_key_missing":     "缺少 encryptionKey 字段",
+        "status_key_empty":       "encryptionKey 为空",
+        "status_key_bad_length":  "encryptionKey 长度错误 ({length} 个字符,需要 32 个)",
+        "status_key_non_hex":     "encryptionKey 包含非 HEX 字符",
+        "status_ok":              "找到有效密钥",
+        "key_found":              "[*] 已自动提取解密密钥: {key}",
+        "key_search_failed":      "[!] 未在 System.json 中找到有效密钥。",
+        "unencrypted_game":       "[i] 此游戏未加密,无需解密。",
+        "encrypted_no_key":       "[!] 检测到加密游戏,但未在 System.json 中找到密钥。请手动输入。",
+        "not_rpg_folder_title":   "确认文件夹",
+        "not_rpg_folder_msg":     "所选文件夹看起来不像 RPG Maker 游戏文件夹。\n(没有 data、www、img、audio 等)\n\n仍要继续吗?",
+
+        "lang_changed": "[Lang] 语言已更改为中文。",
+        "mode_changed": "[Cfg] 解密对象: {label}",
+
+        "start_log":           "[Start] 开始解密任务。",
+        "scan_log":            "[Scan] 正在扫描输入文件夹...",
+        "count_log":           "[Info] 找到 {total} 个目标文件。",
+        "progress_log":        "[Progress] 进度 {percent}% ({processed}/{total})",
+        "failed_files_header": "[Failed] 失败文件列表:",
+        "no_files":            "[!] 未找到目标文件 (.rpgmvp / .png_ / .rpgmvo / .ogg_ / .rpgmvm / .m4a_)。",
+        "cancel_log":          "[Cancelled] 用户已取消解密。",
+        "plain_media_summary": "[Info] 检测到未加密的普通媒体文件: PNG {png} 个、OGG {ogg} 个、M4A {m4a} 个",
+        "file_failed":         "[X]    失败: {path} / 原因: {reason}",
+        "done_log":            "[Done] 任务完成 - 成功 {success} / 失败 {failed} / 跳过 {skipped} / 总计 {total}",
+        "done_all_success":    "所有目标文件已成功解密。",
+        "done_some_failed":    "部分文件处理失败。请查看日志。",
+
+        "bad_png":       "解密结果与 PNG 签名不匹配。密钥可能不正确。",
+        "bad_ogg":       "解密结果与 OGG 签名不匹配。密钥可能不正确。",
+        "bad_m4a":       "解密结果与 M4A 签名不匹配。密钥可能不正确。",
+        "key_too_short": "解密密钥字节不足。(内部错误)",
+        "unknown_error": "未知错误",
+        "io_error":      "I/O 错误: {error}",
+
+        "fatal_error": "[Fatal] 运行期间发生致命错误: {error}",
     },
 }

@@ -13,8 +13,7 @@ from __future__ import annotations
 import json
 import os
 
-VALID_LANGUAGES    = {"ko", "en", "ja"}
-VALID_APPEARANCES  = {"dark", "light"}
+VALID_LANGUAGES    = {"ko", "en", "ja", "zh"}
 VALID_TARGET_MODES = {"both", "image", "audio"}
 
 
@@ -43,16 +42,13 @@ def _sanitize(data: dict) -> dict:
     never written to disk.
     """
     language    = data.get("language", "ko")
-    appearance  = data.get("appearance", "dark")
     target_mode = data.get("target_mode", "both")
 
     return {
         "output_dir":   data.get("output_dir", "") or "",
         "language":     language    if language    in VALID_LANGUAGES    else "ko",
-        "appearance":   appearance  if appearance  in VALID_APPEARANCES  else "dark",
         "target_mode":  target_mode if target_mode in VALID_TARGET_MODES else "both",
         "auto_open":    bool(data.get("auto_open", False)),
-        "overwrite":    bool(data.get("overwrite", False)),
     }
 
 
@@ -83,8 +79,13 @@ def load_config_data() -> tuple[dict, Exception | None]:
     if not isinstance(data, dict):
         return _sanitize({}), None
 
-    # Security hygiene: purge any legacy stored key fields.
-    legacy_keys = ("decryption_key", "encryption_key", "key")
+    # Security hygiene + schema cleanup: purge any legacy fields we no
+    # longer support so re-saving doesn't carry them forward.
+    legacy_keys = (
+        "decryption_key", "encryption_key", "key",
+        "appearance", "overwrite",
+        "workers", "priority",
+    )
     for k in legacy_keys:
         data.pop(k, None)
 
@@ -104,10 +105,8 @@ def load_config_data() -> tuple[dict, Exception | None]:
 def save_config_data(
     output_dir:   str  = "",
     language:     str  = "ko",
-    appearance:   str  = "dark",
     target_mode:  str  = "both",
     auto_open:    bool = False,
-    overwrite:    bool = False,
 ) -> tuple[bool, Exception | None]:
     """Persist only non-sensitive UI settings.
 
@@ -118,10 +117,8 @@ def save_config_data(
         {
             "output_dir":  output_dir,
             "language":    language,
-            "appearance":  appearance,
             "target_mode": target_mode,
             "auto_open":   auto_open,
-            "overwrite":   overwrite,
         }
     )
 
