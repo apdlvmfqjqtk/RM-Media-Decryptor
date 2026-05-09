@@ -3,6 +3,9 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# Claude Code working state (worktrees, local settings)
+.claude/
+
 # C extensions
 *.so
 
