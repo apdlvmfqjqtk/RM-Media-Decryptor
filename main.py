@@ -442,8 +442,10 @@ class DecrypterApp:
                                             state="readonly")
         self.entry_input.grid(row=0, column=1, sticky="ew", pady=4)
 
-        self.btn_input = self._make_button(form, command=self.select_game_folder)
-        self.btn_input.grid(row=0, column=2, sticky="ew", padx=(8, 0), pady=4)
+        self.btn_input = self._make_button(
+            form, command=self.select_game_folder,
+        )
+        self.btn_input.grid(row=0, column=2, sticky="nsew", padx=(8, 0), pady=4)
 
         # Row 1: key
         self.lbl_section_key = tk.Label(
@@ -455,8 +457,10 @@ class DecrypterApp:
                                           font=self._mono_font, show="*")
         self.entry_key.grid(row=1, column=1, sticky="ew", pady=4)
 
-        self.btn_toggle_key = self._make_button(form, command=self.toggle_key_visibility)
-        self.btn_toggle_key.grid(row=1, column=2, sticky="ew", padx=(8, 0), pady=4)
+        self.btn_toggle_key = self._make_button(
+            form, command=self.toggle_key_visibility,
+        )
+        self.btn_toggle_key.grid(row=1, column=2, sticky="nsew", padx=(8, 0), pady=4)
 
         # Row 2: output folder
         self.lbl_section_output = tk.Label(
@@ -468,12 +472,14 @@ class DecrypterApp:
                                              state="readonly")
         self.entry_output.grid(row=2, column=1, sticky="ew", pady=4)
 
-        self.btn_output = self._make_button(form, command=self.select_output_folder)
-        self.btn_output.grid(row=2, column=2, sticky="ew", padx=(8, 0), pady=4)
+        self.btn_output = self._make_button(
+            form, command=self.select_output_folder,
+        )
+        self.btn_output.grid(row=2, column=2, sticky="nsew", padx=(8, 0), pady=4)
 
         # Force a consistent label-column width so all three rows align.
-        form.grid_columnconfigure(0, minsize=130)
-        form.grid_columnconfigure(2, minsize=110)
+        form.grid_columnconfigure(0, minsize=70)
+        form.grid_columnconfigure(2, minsize=60)
 
         # ── Auto-open checkbox ───────────────────────────────────────
         # Font is shrunk to the small size so the label visually matches
@@ -539,14 +545,7 @@ class DecrypterApp:
             relief="flat", bd=0, padx=6, pady=4,
             font=self._log_font,
         )
-        log_scroll = tk.Scrollbar(log_frame, orient="vertical",
-                                   command=self.log_area.yview,
-                                   bg=COLORS["bg"], troughcolor=COLORS["surface"],
-                                   borderwidth=0, highlightthickness=0,
-                                   activebackground=COLORS["btn_active"])
-        self.log_area.configure(yscrollcommand=log_scroll.set)
-        log_scroll.pack(side="right", fill="y")
-        self.log_area.pack(side="left", fill="both", expand=True)
+        self.log_area.pack(fill="both", expand=True)
 
     # ------------------------------------------------------------------
     # Widget factories (consistent gray styling)
@@ -569,16 +568,16 @@ class DecrypterApp:
         return tk.Entry(parent, **defaults)
 
     def _make_button(self, parent, **kwargs) -> tk.Button:
-        # padx=6 / pady=1 keeps the button visually aligned with adjacent
-        # tk.Entry rows; tk.Button's default internal padding renders too
-        # tall on Windows otherwise.
+        # Zero padding + zero border so the button renders at the absolute
+        # minimum height (matches adjacent tk.Entry rows). The Run button
+        # gets its own prominence via an explicit `height=2` override.
         defaults = dict(
             text="", bg=COLORS["btn_bg"], fg=COLORS["btn_fg"],
             activebackground=COLORS["btn_active"],
             activeforeground=COLORS["btn_fg"],
             disabledforeground=COLORS["fg_dim"],
-            relief="flat", bd=1,
-            padx=6, pady=1,
+            relief="flat", bd=0,
+            padx=6, pady=0,
             highlightthickness=0,
         )
         defaults.update(kwargs)
@@ -667,8 +666,15 @@ class DecrypterApp:
                 if self._status_args
                 else self.t(self._status_key)
             )
+        # Color by status: success -> green, cancel -> warning, else neutral.
+        if self._status_key == "complete_status":
+            color = COLORS["log_success"]
+        elif self._status_key == "cancel_status":
+            color = COLORS["log_warning"]
+        else:
+            color = COLORS["fg_dim"]
         try:
-            self.lbl_status.configure(text=text)
+            self.lbl_status.configure(text=text, fg=color)
         except Exception:
             pass
 
@@ -841,23 +847,8 @@ class DecrypterApp:
             pass
 
     def clear_log(self) -> None:
-        try:
-            self.log_area.configure(state="normal")
-            content = self.log_area.get("1.0", "end-1c")
-            self.log_area.configure(state="disabled")
-        except Exception:
-            return
-
-        if not content:
-            return
-
-        if not messagebox.askyesno(
-            self.t("log_clear_confirm_title"),
-            self.t("log_clear_confirm_msg"),
-            parent=self.root,
-        ):
-            return
-
+        """Erase all log text. No confirm prompt — the user explicitly asked
+        for a one-click clear; bringing the log back is just re-running."""
         try:
             self.log_area.configure(state="normal")
             self.log_area.delete("1.0", tk.END)
@@ -1289,16 +1280,7 @@ class DecrypterApp:
         if self._closing_after_cancel:
             return
 
-        # Audio cue + log/status line are enough to signal success — no popup.
-        # Failures still pop up so the user notices something needs attention.
         self.root.bell()
-
-        if stats["fail_count"] > 0:
-            messagebox.showwarning(
-                self.t("done_title"),
-                self.t("done_failed_msg", failed=stats["fail_count"]),
-                parent=self.root,
-            )
 
         if self.auto_open_var.get():
             self.open_output_folder(subdir=stats.get("game_name", ""))

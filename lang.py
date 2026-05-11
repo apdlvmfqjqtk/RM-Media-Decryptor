@@ -27,19 +27,19 @@ TEXT = {
         "window_title": "RPG Decrypter",
 
         # sections
-        "section_game":   "원본 게임 폴더",
-        "section_output": "결과물 저장 폴더",
-        "key_label":      "복호화 키",
+        "section_game":   "게임 폴더",
+        "section_output": "저장 폴더",
+        "key_label":      "키",
 
         # menu bar
         "menu_language": "언어",
-        "menu_mode":     "대상",
+        "menu_mode":     "저장 대상",
         "target_both":   "이미지 + 오디오",
         "target_image":  "이미지 파일만",
         "target_audio":  "오디오 파일만",
 
         # checkbox
-        "auto_open_label": "완료 후 결과 폴더 자동 열기",
+        "auto_open_label": "완료 후 폴더 자동 열기",
 
         # placeholders
         "input_placeholder":  "게임 폴더를 선택하세요",
@@ -47,8 +47,8 @@ TEXT = {
         "key_placeholder":    "System.json에서 자동 추출되거나 직접 입력 (저장되지 않음)",
 
         # buttons
-        "folder_button_game":   "폴더 선택",
-        "folder_button_output": "폴더 선택",
+        "folder_button_game":   "선택",
+        "folder_button_output": "선택",
         "key_show":             "표시",
         "key_hide":             "숨기기",
         "run_button":           "복호화 시작",
@@ -137,7 +137,7 @@ TEXT = {
         "plain_media_summary": "[Info] 암호화되지 않은 일반 미디어 파일 발견: PNG {png}개, OGG {ogg}개, M4A {m4a}개",
         "file_failed":         "[X]    실패: {path} / 이유: {reason}",
         "done_log":            "[Done] 작업 완료 - 성공 {success}개, 실패 {failed}개, 건너뜀 {skipped}개, 전체 {total}개",
-        "done_all_success":    "모든 대상 파일이 정상적으로 복호화되었습니다.",
+        "done_all_success":    "[Done] 모든 대상 파일이 정상적으로 복호화되었습니다.",
         "done_some_failed":    "일부 파일 처리에 실패했습니다. 로그를 확인해 주세요.",
 
         # decrypt errors
@@ -155,24 +155,24 @@ TEXT = {
     "en": {
         "window_title": "RPG Decrypter",
 
-        "section_game":   "Source Game Folder",
-        "section_output": "Output Folder",
-        "key_label":      "Decryption Key",
+        "section_game":   "Game Folder",
+        "section_output": "Save Folder",
+        "key_label":      "Key",
 
         "menu_language": "Language",
-        "menu_mode":     "Mode",
+        "menu_mode":     "Save Target",
         "target_both":   "Images + Audio",
         "target_image":  "Images only",
         "target_audio":  "Audio only",
 
-        "auto_open_label": "Open output folder when done",
+        "auto_open_label": "Open folder when done",
 
         "input_placeholder":  "Select the game folder",
         "output_placeholder": "Folder for the decrypted files",
         "key_placeholder":    "Auto-detected from System.json or entered manually (not saved)",
 
-        "folder_button_game":   "Select Folder",
-        "folder_button_output": "Select Folder",
+        "folder_button_game":   "Select",
+        "folder_button_output": "Select",
         "key_show":             "Show",
         "key_hide":             "Hide",
         "run_button":           "Start Decryption",
@@ -251,7 +251,7 @@ TEXT = {
         "plain_media_summary": "[Info] Normal unencrypted media found: PNG {png}, OGG {ogg}, M4A {m4a}",
         "file_failed":         "[X]    Failed: {path} / Reason: {reason}",
         "done_log":            "[Done] Completed - {success} succeeded, {failed} failed, {skipped} skipped, {total} total",
-        "done_all_success":    "All target files were decrypted successfully.",
+        "done_all_success":    "[Done] All target files were decrypted successfully.",
         "done_some_failed":    "Some files failed. Please check the log for details.",
 
         "bad_png":       "Decrypted output does not match the PNG signature. The key is likely wrong.",
@@ -267,24 +267,24 @@ TEXT = {
     "ja": {
         "window_title": "RPG Decrypter",
 
-        "section_game":   "元ゲームフォルダー",
-        "section_output": "出力フォルダー",
-        "key_label":      "復号キー",
+        "section_game":   "ゲームフォルダー",
+        "section_output": "保存フォルダー",
+        "key_label":      "キー",
 
         "menu_language": "言語",
-        "menu_mode":     "対象",
+        "menu_mode":     "保存対象",
         "target_both":   "画像 + オーディオ",
         "target_image":  "画像ファイルのみ",
         "target_audio":  "オーディオのみ",
 
-        "auto_open_label": "完了後に出力フォルダーを自動で開く",
+        "auto_open_label": "完了後にフォルダーを自動で開く",
 
         "input_placeholder":  "ゲームフォルダーを選択してください",
         "output_placeholder": "復号後のファイルを保存するフォルダー",
         "key_placeholder":    "System.json から自動取得、または手動入力(保存されません)",
 
-        "folder_button_game":   "フォルダー選択",
-        "folder_button_output": "フォルダー選択",
+        "folder_button_game":   "選択",
+        "folder_button_output": "選択",
         "key_show":             "表示",
         "key_hide":             "非表示",
         "run_button":           "復号開始",
@@ -363,7 +363,7 @@ TEXT = {
         "plain_media_summary": "[Info] 暗号化されていない通常メディアを検出: PNG {png} 個、OGG {ogg} 個、M4A {m4a} 個",
         "file_failed":         "[X]    失敗: {path} / 理由: {reason}",
         "done_log":            "[Done] 完了 - 成功 {success} / 失敗 {failed} / スキップ {skipped} / 合計 {total}",
-        "done_all_success":    "すべての対象ファイルを正常に復号しました。",
+        "done_all_success":    "[Done] すべての対象ファイルを正常に復号しました。",
         "done_some_failed":    "一部のファイル処理に失敗しました。ログをご確認ください。",
 
         "bad_png":       "復号結果が PNG シグネチャと一致しません。キーが間違っている可能性が高いです。",
@@ -379,24 +379,24 @@ TEXT = {
     "zh": {
         "window_title": "RPG Decrypter",
 
-        "section_game":   "源游戏文件夹",
-        "section_output": "输出文件夹",
-        "key_label":      "解密密钥",
+        "section_game":   "游戏文件夹",
+        "section_output": "保存文件夹",
+        "key_label":      "密钥",
 
         "menu_language": "语言",
-        "menu_mode":     "对象",
+        "menu_mode":     "保存目标",
         "target_both":   "图像 + 音频",
         "target_image":  "仅图像",
         "target_audio":  "仅音频",
 
-        "auto_open_label": "完成后自动打开输出文件夹",
+        "auto_open_label": "完成后自动打开文件夹",
 
         "input_placeholder":  "请选择游戏文件夹",
         "output_placeholder": "解密文件保存位置",
         "key_placeholder":    "从 System.json 自动提取或手动输入(不保存)",
 
-        "folder_button_game":   "选择文件夹",
-        "folder_button_output": "选择文件夹",
+        "folder_button_game":   "选择",
+        "folder_button_output": "选择",
         "key_show":             "显示",
         "key_hide":             "隐藏",
         "run_button":           "开始解密",
@@ -475,7 +475,7 @@ TEXT = {
         "plain_media_summary": "[Info] 检测到未加密的普通媒体文件: PNG {png} 个、OGG {ogg} 个、M4A {m4a} 个",
         "file_failed":         "[X]    失败: {path} / 原因: {reason}",
         "done_log":            "[Done] 任务完成 - 成功 {success} / 失败 {failed} / 跳过 {skipped} / 总计 {total}",
-        "done_all_success":    "所有目标文件已成功解密。",
+        "done_all_success":    "[Done] 所有目标文件已成功解密。",
         "done_some_failed":    "部分文件处理失败。请查看日志。",
 
         "bad_png":       "解密结果与 PNG 签名不匹配。密钥可能不正确。",
