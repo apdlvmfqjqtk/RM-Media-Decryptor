@@ -298,10 +298,9 @@ class DecrypterApp:
 
         _apply_tk_dpi_scaling(self.root)
 
-        # Pick a reasonable, resizable window size with minsize constraints.
-        self.root.geometry("700x750")
-        self.root.resizable(True, True)
-        self.root.minsize(700, 750)
+        # Pick a reasonable, non-resizable window size.
+        self.root.geometry("800x750")
+        self.root.resizable(False, False)
         self.root.configure(bg=COLORS["bg"])
 
         # Runtime state must exist before any helper uses it.
