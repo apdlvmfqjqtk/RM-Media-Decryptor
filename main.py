@@ -182,20 +182,105 @@ SKIP_REASONS = {
 
 
 # =====================================================================
-# Default font helper (CJK-safe Windows system font)
+# Bundled language font loader
 # =====================================================================
-def _pick_default_family() -> str:
-    """Return the best available Windows-system font for CJK + Latin."""
+# The file names below must match assets/fonts exactly.
+# Font family names are the internal names exposed to Tk after registration.
+BUNDLED_FONT_FILES: dict[str, str] = {
+    "a2z": "A2Z-4Regular.ttf",
+    "zh":  "NotoSansSC-Regular.ttf",
+    "ja":  "ZenKakuGothicNew-Regular.ttf",
+}
+
+FONT_FAMILY_CANDIDATES: dict[str, tuple[str, ...]] = {
+    # A2Z's internal family name can vary by file build, so keep candidates.
+    "a2z": ("A2Z 4 Regular", "A2Z-4Regular", "A2Z-4", "A2Z 4", "A2Z"),
+    "zh":  ("Noto Sans SC", "NotoSansSC", "Noto Sans CJK SC"),
+    "ja":  ("Zen Kaku Gothic New", "ZenKakuGothicNew", "Zen Kaku Gothic"),
+}
+
+_LOADED_BUNDLED_FONTS = False
+
+
+def _load_private_font_file(filename: str) -> None:
+    """Register one bundled TTF privately for this process on Windows."""
+    font_path = resource_path(os.path.join("assets", "fonts", filename))
+    if not os.path.isfile(font_path):
+        sys.stderr.write(f"[font] Missing bundled font: {font_path}")
+        return
+    try:
+        # FR_PRIVATE (0x10): font is available only to this process.
+        ctypes.windll.gdi32.AddFontResourceExW(font_path, 0x10, None)
+    except Exception as e:
+        sys.stderr.write(f"[font] Failed to load {font_path}: {e}")
+
+
+def _load_bundled_fonts() -> None:
+    """Load A2Z, Chinese, and Japanese bundled fonts once."""
+    global _LOADED_BUNDLED_FONTS
+    if _LOADED_BUNDLED_FONTS:
+        return
+    for filename in BUNDLED_FONT_FILES.values():
+        _load_private_font_file(filename)
+    _LOADED_BUNDLED_FONTS = True
+
+
+def _first_available_family(candidates: tuple[str, ...]) -> str | None:
     try:
         families = set(tkfont.families())
     except Exception:
-        return "TkDefaultFont"
-    # Malgun Gothic ships on every Korean Windows install since Vista
-    # and renders Korean / English / Japanese / Chinese cleanly.
-    for candidate in ("Malgun Gothic", "맑은 고딕", "Yu Gothic UI",
-                      "Microsoft YaHei UI", "Microsoft JhengHei UI", "Segoe UI"):
+        return None
+
+    # Exact match first.
+    for candidate in candidates:
         if candidate in families:
             return candidate
+
+    # Loose match second, useful when the family name contains spacing variants.
+    normalized = {name.lower().replace(" ", "").replace("-", ""): name for name in families}
+    for candidate in candidates:
+        key = candidate.lower().replace(" ", "").replace("-", "")
+        if key in normalized:
+            return normalized[key]
+    return None
+
+
+# =====================================================================
+# Default font helper
+# =====================================================================
+def _pick_default_family(lang: str = "ko") -> str:
+    """Return the best bundled/system font for the selected UI language.
+
+    ko/en -> A2Z bundled font
+    zh    -> Noto Sans SC bundled font
+    ja    -> Zen Kaku Gothic New bundled font
+    """
+    _load_bundled_fonts()
+
+    if lang in ("ko", "en"):
+        family = _first_available_family(FONT_FAMILY_CANDIDATES["a2z"])
+        if family:
+            return family
+        for candidate in ("Malgun Gothic", "맑은 고딕", "Segoe UI"):
+            if _first_available_family((candidate,)):
+                return candidate
+
+    if lang in ("zh", "zh_cn", "zh-CN", "cn"):
+        family = _first_available_family(FONT_FAMILY_CANDIDATES["zh"])
+        if family:
+            return family
+        for candidate in ("Microsoft YaHei UI", "Microsoft YaHei", "Malgun Gothic", "맑은 고딕"):
+            if _first_available_family((candidate,)):
+                return candidate
+
+    if lang in ("ja", "jp"):
+        family = _first_available_family(FONT_FAMILY_CANDIDATES["ja"])
+        if family:
+            return family
+        for candidate in ("Yu Gothic UI", "Yu Gothic", "Meiryo UI", "Meiryo", "Malgun Gothic", "맑은 고딕"):
+            if _first_available_family((candidate,)):
+                return candidate
+
     return "TkDefaultFont"
 
 
@@ -213,14 +298,71 @@ class DecrypterApp:
 
         _apply_tk_dpi_scaling(self.root)
 
-        # Pick a reasonable, non-resizable window size. The log fills the
-        # remaining vertical space below the controls.
+        # Pick a reasonable, resizable window size with minsize constraints.
         self.root.geometry("700x750")
-        self.root.resizable(False, False)
+        self.root.resizable(True, True)
+        self.root.minsize(700, 750)
         self.root.configure(bg=COLORS["bg"])
 
+        # Runtime state must exist before any helper uses it.
+        # In particular, _pick_default_family(self.current_lang) and t()
+        # both read current_lang during startup.
+        self.current_lang        = "ko"
+        self.current_target_mode = "both"
+        self.is_processing       = False
+        self.processed_files     = 0
+        self.total_files         = 0
+
+        # Threading state
+        self._cancel_event         = threading.Event()
+        self._closing_after_cancel = False
+        self._key_shown            = False
+        self._last_ui_update       = 0.0
+        self._counter_lock         = threading.Lock()
+
+        # Menu variables lazily initialized or None
+        self._lang_var             = None
+        self._mode_var             = None
+
+        # Status-label state.
+        self._status_key:  str | None = None
+        self._status_args: dict       = {}
+
+        # Tk variables (key_var is in-memory only — never written to disk).
+        # load_config() writes into output_dir_var / auto_open_var, so these
+        # must be created before load_config() is called.
+        self.key_var        = tk.StringVar()
+        self.input_dir_var  = tk.StringVar()
+        self.output_dir_var = tk.StringVar()
+        self.auto_open_var  = tk.BooleanVar(value=False)
+
+        # Load persisted (non-sensitive) settings BEFORE font/UI setup so a
+        # saved language can affect the initial font choice and menu labels.
+        self.load_config(silent=True)
+
         # Default font for ALL widgets (TkDefaultFont propagates).
-        self._default_family = _pick_default_family()
+        self._default_family = _pick_default_family(self.current_lang)
+        self._apply_fonts()
+        # Body font for the key entry; the log uses a size that is compact but readable.
+        self._mono_font  = (self._default_family, 10)
+        self._log_font   = (self._default_family, 8)
+        self._small_font = (self._default_family, 8)
+
+        self._build_menubar()
+        self._build_body()
+        self._configure_log_tags()
+        self._setup_key_context_menu()
+        self._setup_placeholders()
+
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        # First language pass: no log entry, no config write.
+        self.apply_language(log_change=False, save=False)
+        self._set_status("idle_status")
+
+
+    def _apply_fonts(self) -> None:
+        """Push the current language's best font into Tk's named font objects."""
         try:
             tkfont.nametofont("TkDefaultFont").configure(
                 family=self._default_family, size=10
@@ -233,48 +375,6 @@ class DecrypterApp:
             )
         except Exception:
             pass
-        # Body font for the key entry; the log uses a deliberately smaller
-        # size so a long batch fits more progress lines on screen.
-        self._mono_font = (self._default_family, 10)
-        self._log_font  = (self._default_family, 7)
-        self._small_font = (self._default_family, 8)
-
-        # Runtime state
-        self.current_lang        = "ko"
-        self.current_target_mode = "both"
-        self.is_processing       = False
-        self.processed_files     = 0
-        self.total_files         = 0
-
-        # Threading state
-        self._cancel_event         = threading.Event()
-        self._closing_after_cancel = False
-        self._key_shown            = False
-        self._last_ui_update       = 0.0
-
-        # Status-label state.
-        self._status_key:  str | None = None
-        self._status_args: dict       = {}
-
-        # Tk variables (key_var is in-memory only — never written to disk).
-        self.key_var        = tk.StringVar()
-        self.input_dir_var  = tk.StringVar()
-        self.output_dir_var = tk.StringVar()
-        self.auto_open_var  = tk.BooleanVar(value=False)
-
-        # Load persisted (non-sensitive) settings BEFORE building UI.
-        self.load_config(silent=True)
-
-        self._build_menubar()
-        self._build_body()
-        self._configure_log_tags()
-        self._setup_key_context_menu()
-
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-
-        # First language pass: no log entry, no config write.
-        self.apply_language(log_change=False, save=False)
-        self._set_status("idle_status")
 
     def set_window_icon(self) -> None:
         for rel in (
@@ -294,14 +394,102 @@ class DecrypterApp:
     # ------------------------------------------------------------------
     # Translation
     # ------------------------------------------------------------------
-    def t(self, key: str, **kwargs) -> str:
-        template = TEXT.get(self.current_lang, TEXT["ko"]).get(
+    def _t_lang(self, lang: str, key: str, **kwargs) -> str:
+        template = TEXT.get(lang, TEXT["ko"]).get(
             key, TEXT["ko"].get(key, key)
         )
         try:
             return template.format(**kwargs) if kwargs else template
         except (KeyError, IndexError):
             return template
+
+    def t(self, key: str, **kwargs) -> str:
+        return self._t_lang(self.current_lang, key, **kwargs)
+
+    # ------------------------------------------------------------------
+    # Placeholder management
+    # ------------------------------------------------------------------
+    def _setup_placeholders(self) -> None:
+        self.entry_key.bind("<FocusIn>", self._on_key_focus_in)
+        self.entry_key.bind("<FocusOut>", self._on_key_focus_out)
+
+        self.input_dir_var.trace_add("write", lambda *args: self._update_input_placeholder())
+        self.output_dir_var.trace_add("write", lambda *args: self._update_output_placeholder())
+
+        self._update_key_placeholder()
+        self._update_input_placeholder()
+        self._update_output_placeholder()
+
+    def _update_key_placeholder(self) -> None:
+        val = self.key_var.get()
+        placeholder = self.t("key_placeholder")
+        is_placeholder = not val
+        if val:
+            for l in TEXT:
+                if val == TEXT[l].get("key_placeholder"):
+                    is_placeholder = True
+                    break
+        if is_placeholder:
+            self.key_var.set(placeholder)
+            self.entry_key.configure(fg=COLORS["fg_dim"])
+            self.entry_key.configure(show="")
+        else:
+            self.entry_key.configure(fg=COLORS["entry_fg"])
+            if not self._key_shown:
+                self.entry_key.configure(show="*")
+
+    def _on_key_focus_in(self, event) -> None:
+        val = self.key_var.get()
+        is_placeholder = False
+        for l in TEXT:
+            if val == TEXT[l].get("key_placeholder"):
+                is_placeholder = True
+                break
+        if is_placeholder:
+            self.key_var.set("")
+            self.entry_key.configure(fg=COLORS["entry_fg"])
+            if not self._key_shown:
+                self.entry_key.configure(show="*")
+
+    def _on_key_focus_out(self, event) -> None:
+        val = self.key_var.get().strip()
+        if not val:
+            self.key_var.set(self.t("key_placeholder"))
+            self.entry_key.configure(fg=COLORS["fg_dim"])
+            self.entry_key.configure(show="")
+
+    def _update_input_placeholder(self) -> None:
+        val = self.input_dir_var.get()
+        placeholder = self.t("input_placeholder")
+        is_placeholder = not val
+        if val:
+            for l in TEXT:
+                if val == TEXT[l].get("input_placeholder"):
+                    is_placeholder = True
+                    break
+        if is_placeholder:
+            if val != placeholder:
+                self.input_dir_var.set(placeholder)
+            self.entry_input.configure(fg=COLORS["fg_dim"])
+        else:
+            self.entry_input.configure(fg=COLORS["entry_fg"])
+
+    def _update_output_placeholder(self) -> None:
+        val = self.output_dir_var.get()
+        placeholder = self.t("output_placeholder")
+        is_placeholder = not val
+        if val:
+            for l in TEXT:
+                if val == TEXT[l].get("output_placeholder"):
+                    is_placeholder = True
+                    break
+        if is_placeholder:
+            if val != placeholder:
+                self.output_dir_var.set(placeholder)
+            self.entry_output.configure(fg=COLORS["fg_dim"])
+        else:
+            self.entry_output.configure(fg=COLORS["entry_fg"])
+
 
     # ------------------------------------------------------------------
     # Config (no key persistence)
@@ -313,7 +501,9 @@ class DecrypterApp:
                 self.log(self.t("config_loaded_fail", error=error))
             return
 
-        self.output_dir_var.set(data.get("output_dir", "") or "")
+        output_dir = data.get("output_dir", "") or ""
+        if output_dir:
+            self.output_dir_var.set(output_dir)
 
         lang = data.get("language", "ko")
         if lang in TEXT:
@@ -326,8 +516,13 @@ class DecrypterApp:
         self.auto_open_var.set(bool(data.get("auto_open", False)))
 
     def save_config(self) -> bool:
+        out_dir = self.output_dir_var.get()
+        for l in TEXT:
+            if out_dir == TEXT[l].get("output_placeholder"):
+                out_dir = ""
+                break
         ok, error = save_config_data(
-            output_dir=self.output_dir_var.get(),
+            output_dir=out_dir,
             language=self.current_lang,
             target_mode=self.current_target_mode,
             auto_open=self.auto_open_var.get(),
@@ -335,6 +530,7 @@ class DecrypterApp:
         if not ok:
             self.log(self.t("config_saved_fail", error=error))
         return ok
+
 
     # ------------------------------------------------------------------
     # Menu bar
@@ -390,14 +586,36 @@ class DecrypterApp:
 
     # Lazily-allocated radio-button variables (one per menu).
     def _lang_radio_var(self) -> tk.StringVar:
-        if not hasattr(self, "_lang_var"):
+        if self._lang_var is None:
             self._lang_var = tk.StringVar(value=self.current_lang)
         return self._lang_var
 
     def _mode_radio_var(self) -> tk.StringVar:
-        if not hasattr(self, "_mode_var"):
+        if self._mode_var is None:
             self._mode_var = tk.StringVar(value=self.current_target_mode)
         return self._mode_var
+
+
+    def _refresh_current_language_fonts(self) -> None:
+        """Apply the selected language font to widgets using explicit font tuples."""
+        self._default_family = _pick_default_family(self.current_lang)
+        self._mono_font  = (self._default_family, 10)
+        self._log_font   = (self._default_family, 8)
+        self._small_font = (self._default_family, 8)
+        self._apply_fonts()
+
+        # These widgets were created with explicit font tuples, so named-font
+        # updates alone do not change them after a language switch.
+        for widget, font in (
+            (getattr(self, "entry_key", None), self._mono_font),
+            (getattr(self, "log_area", None), self._log_font),
+            (getattr(self, "chk_auto_open", None), self._small_font),
+        ):
+            if widget is not None:
+                try:
+                    widget.configure(font=font)
+                except Exception:
+                    pass
 
     # Menu handlers
     def on_language_changed(self, code: str) -> None:
@@ -405,8 +623,8 @@ class DecrypterApp:
             return
         self.current_lang = code
         self._lang_radio_var().set(code)
+        self._refresh_current_language_fonts()
         self.apply_language(log_change=True, save=True)
-
     def on_target_mode_changed(self, mode: str) -> None:
         if mode not in TARGET_MODE_TEXT_KEYS:
             return
@@ -536,6 +754,9 @@ class DecrypterApp:
                               highlightbackground=COLORS["border"])
         log_frame.pack(fill="both", expand=True, pady=(4, 0))
 
+        scrollbar = tk.Scrollbar(log_frame)
+        scrollbar.pack(side="right", fill="y")
+
         self.log_area = tk.Text(
             log_frame, wrap="word", state="disabled",
             bg=COLORS["surface"], fg=COLORS["fg"],
@@ -544,8 +765,11 @@ class DecrypterApp:
             selectforeground=COLORS["btn_fg"],
             relief="flat", bd=0, padx=6, pady=4,
             font=self._log_font,
+            yscrollcommand=scrollbar.set,
         )
-        self.log_area.pack(fill="both", expand=True)
+        self.log_area.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=self.log_area.yview)
+
 
     # ------------------------------------------------------------------
     # Widget factories (consistent gray styling)
@@ -614,6 +838,22 @@ class DecrypterApp:
         self._populate_menus()
         self._lang_radio_var().set(self.current_lang)
         self._mode_radio_var().set(self.current_target_mode)
+
+        # Update placeholders if they are active
+        for var, key in (
+            (self.input_dir_var, "input_placeholder"),
+            (self.output_dir_var, "output_placeholder"),
+            (self.key_var, "key_placeholder"),
+        ):
+            val = var.get()
+            is_placeholder = not val
+            if not is_placeholder:
+                for l in TEXT:
+                    if val == TEXT[l].get(key):
+                        is_placeholder = True
+                        break
+            if is_placeholder:
+                var.set(self.t(key))
 
         # Section labels + buttons
         self.lbl_section_game.configure(text=self.t("section_game"))
@@ -728,6 +968,10 @@ class DecrypterApp:
 
     def open_output_folder(self, subdir: str = "") -> None:
         base = self.output_dir_var.get().strip()
+        for l in TEXT:
+            if base == TEXT[l].get("output_placeholder"):
+                base = ""
+                break
         if not base:
             return
         target = os.path.join(base, subdir) if subdir else base
@@ -735,6 +979,7 @@ class DecrypterApp:
             os.startfile(target)
         elif os.path.isdir(base):
             os.startfile(base)
+
 
     def select_game_folder(self) -> None:
         selected_dir = filedialog.askdirectory(
@@ -804,20 +1049,18 @@ class DecrypterApp:
         text_key = self._KEY_STATUS_TRANS.get(status)
         return self.t(text_key) if text_key else status
 
-    def _format_decrypt_error(self, reason) -> str:
-        if isinstance(reason, tuple):
-            code   = reason[0]
-            detail = reason[1] if len(reason) > 1 else ""
-            if code == "io_error":
-                return self.t("io_error", error=detail)
-            if code == "raw_error":
-                if detail in ("unknown_error", "key_too_short"):
-                    return self.t(detail)
-                return str(detail)
-            return str(detail or code)
-        if reason in ("bad_png", "bad_ogg", "bad_m4a", "unknown_error"):
-            return self.t(reason)
-        return str(reason)
+    def _format_decrypt_error(self, reason: tuple[str, str], run_lang: str) -> str:
+        code, detail = reason
+        if code == "io_error":
+            return self._t_lang(run_lang, "io_error", error=detail)
+        if code == "raw_error":
+            if detail in ("unknown_error", "key_too_short"):
+                return self._t_lang(run_lang, detail)
+            return str(detail)
+        if code in ("bad_png", "bad_ogg", "bad_m4a", "unknown_error"):
+            return self._t_lang(run_lang, code)
+        return str(code)
+
 
     # ------------------------------------------------------------------
     # Key visibility toggle
@@ -903,8 +1146,8 @@ class DecrypterApp:
                 pass
             self.log_area.see(tk.END)
             self.log_area.configure(state="disabled")
-        except Exception:
-            pass
+        except Exception as e:
+            sys.stderr.write(f"[log] Error appending log: {e}\n")
 
     # ------------------------------------------------------------------
     # Run / cancel / worker thread
@@ -913,6 +1156,15 @@ class DecrypterApp:
         key        = self.key_var.get().strip()
         input_dir  = self.input_dir_var.get().strip()
         output_dir = self.output_dir_var.get().strip()
+
+        # Filter out placeholder strings
+        for l in TEXT:
+            if key == TEXT[l].get("key_placeholder"):
+                key = ""
+            if input_dir == TEXT[l].get("input_placeholder"):
+                input_dir = ""
+            if output_dir == TEXT[l].get("output_placeholder"):
+                output_dir = ""
 
         if not key or not input_dir or not output_dir:
             messagebox.showwarning(
@@ -935,7 +1187,8 @@ class DecrypterApp:
             return
 
         self.is_processing   = True
-        self.processed_files = 0
+        with self._counter_lock:
+            self.processed_files = 0
         self.total_files     = 0
         self._last_ui_update = 0.0
         self._cancel_event.clear()
@@ -958,10 +1211,11 @@ class DecrypterApp:
 
         worker = threading.Thread(
             target=self.process_files,
-            args=(key, input_dir, output_dir, self.current_target_mode),
+            args=(key, input_dir, output_dir, self.current_target_mode, self.current_lang),
             daemon=True,
         )
         worker.start()
+
 
     def cancel_processing(self) -> None:
         self._cancel_event.set()
@@ -976,18 +1230,20 @@ class DecrypterApp:
         input_dir: str,
         output_dir: str,
         target_mode: str,
+        run_lang: str,
     ) -> None:
         """Worker entry point: scan, decrypt, summarise."""
-        self.log(self.t("start_log"))
+        self.log(self._t_lang(run_lang, "start_log"))
 
         try:
             target_files, unsupported_count, plain_media_counts = self._scan_files(
-                input_dir, target_mode
+                input_dir, target_mode, run_lang
             )
 
             if any(plain_media_counts.values()):
                 self.log(
-                    self.t(
+                    self._t_lang(
+                        run_lang,
                         "plain_media_summary",
                         png=plain_media_counts[".png"],
                         ogg=plain_media_counts[".ogg"],
@@ -1000,41 +1256,42 @@ class DecrypterApp:
             self.root.after(0, self._end_scan_phase)
 
             if self.total_files == 0:
-                self.log(self.t("no_files"))
+                self.log(self._t_lang(run_lang, "no_files"))
                 return
 
-            self.log(self.t("count_log", total=self.total_files))
+            self.log(self._t_lang(run_lang, "count_log", total=self.total_files))
             self.log(
-                self.t("progress_log", percent=0, processed=0, total=self.total_files)
+                self._t_lang(run_lang, "progress_log", percent=0, processed=0, total=self.total_files)
             )
 
             stats = self._run_decrypt_loop(
-                target_files, key, input_dir, output_dir
+                target_files, key, input_dir, output_dir, run_lang
             )
 
             if not stats["cancelled_in_loop"]:
-                self._log_summary(stats, unsupported_count)
+                self._log_summary(stats, unsupported_count, run_lang)
                 self.root.after(
                     0,
                     lambda s=stats: self._show_completion_notification(s),
                 )
 
         except Exception as e:
-            err_msg = self.t("fatal_error", error=e)
+            err_msg = self._t_lang(run_lang, "fatal_error", error=e)
             self.log(err_msg)
             self.root.after(
                 0,
                 lambda m=err_msg: messagebox.showerror(
-                    self.t("error_title"), m, parent=self.root
+                    self._t_lang(run_lang, "error_title"), m, parent=self.root
                 ),
             )
         finally:
             self.finish_processing()
 
+
     def _scan_files(
-        self, input_dir: str, target_mode: str
+        self, input_dir: str, target_mode: str, run_lang: str
     ) -> tuple[list[tuple[str, str, str]], int, dict[str, int]]:
-        self.log(self.t("scan_log"))
+        self.log(self._t_lang(run_lang, "scan_log"))
 
         target_exts      = get_target_extensions(target_mode)
         plain_media_exts = PLAIN_MEDIA_EXTS_BY_TARGET.get(
@@ -1046,6 +1303,8 @@ class DecrypterApp:
         plain_media_counts                       = {".png": 0, ".ogg": 0, ".m4a": 0}
 
         for root_dir, _, files in os.walk(input_dir):
+            if self._cancel_event.is_set():
+                return [], 0, {".png": 0, ".ogg": 0, ".m4a": 0}
             for filename in files:
                 ext       = os.path.splitext(filename)[1].lower()
                 full_path = os.path.join(root_dir, filename)
@@ -1062,6 +1321,7 @@ class DecrypterApp:
                     plain_media_counts[ext] += 1
 
         return target_files, unsupported_count, plain_media_counts
+
 
     @staticmethod
     def _compute_game_name(input_dir: str) -> str:
@@ -1103,46 +1363,56 @@ class DecrypterApp:
             target_dir = self._compute_target_dir(
                 input_dir, output_dir, root_dir, game_name
             )
+            if os.path.islink(target_dir):
+                continue
             os.makedirs(target_dir, exist_ok=True)
             stem, _   = os.path.splitext(filename)
             desired   = os.path.join(target_dir, stem + EXT_MAP[ext])
+            if os.path.islink(desired):
+                continue
             output_path = unique_output_path(desired)
             tasks.append((input_path, output_path))
         return tasks
 
-    def _maybe_log_progress(self, total: int, last_bucket: int) -> int:
-        percent = int((self.processed_files / total) * 100)
+
+    def _maybe_log_progress(self, total: int, last_bucket: int, run_lang: str) -> int:
+        with self._counter_lock:
+            processed = self.processed_files
+        percent = int((processed / total) * 100)
         bucket  = (percent // PROGRESS_LOG_BUCKET) * PROGRESS_LOG_BUCKET
-        if bucket > last_bucket or self.processed_files == total:
+        if bucket > last_bucket or processed == total:
             self.log(
-                self.t(
+                self._t_lang(
+                    run_lang,
                     "progress_log",
                     percent=percent,
-                    processed=self.processed_files,
+                    processed=processed,
                     total=total,
                 )
             )
             return bucket
         return last_bucket
 
+
     def _maybe_emit_ui_update(self, total: int, start_time: float) -> None:
         now = time.monotonic()
+        with self._counter_lock:
+            processed = self.processed_files
         if (
             now - self._last_ui_update < UI_THROTTLE_SEC
-            and self.processed_files != total
+            and processed != total
         ):
             return
         self._last_ui_update = now
 
         elapsed = now - start_time
-        if self.processed_files >= 3 and elapsed > 0:
-            avg = elapsed / self.processed_files
-            eta_seconds = max(0, (total - self.processed_files) * avg)
+        if processed >= 3 and elapsed > 0:
+            avg = elapsed / processed
+            eta_seconds = max(0, (total - processed) * avg)
         else:
             eta_seconds = None
 
-        pct       = self.processed_files / total
-        processed = self.processed_files
+        pct       = processed / total
         percent   = int(pct * 100)
         self.root.after(
             0,
@@ -1150,12 +1420,14 @@ class DecrypterApp:
                 self._update_progress(v, p, t, pc, e),
         )
 
+
     def _run_decrypt_loop(
         self,
         target_files: list[tuple[str, str, str]],
         key: str,
         input_dir: str,
         output_dir: str,
+        run_lang: str,
     ) -> dict:
         """Decrypt every file in *target_files* using a thread pool."""
         success_count = fail_count = skip_count = 0
@@ -1169,7 +1441,7 @@ class DecrypterApp:
         tasks      = self._prepare_tasks(
             target_files, input_dir, output_dir, game_name
         )
-        total = len(tasks)
+        total = self.total_files
 
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=DECRYPT_WORKERS
@@ -1182,7 +1454,7 @@ class DecrypterApp:
                 for fut in concurrent.futures.as_completed(futures):
                     if self._cancel_event.is_set():
                         cancelled_in_loop = True
-                        self.log(self.t("cancel_log"))
+                        self.log(self._t_lang(run_lang, "cancel_log"))
                         break
 
                     input_path = futures[fut]
@@ -1191,18 +1463,19 @@ class DecrypterApp:
                     except Exception as e:
                         ok, reason = False, ("raw_error", str(e) or "unknown_error")
 
-                    self.processed_files += 1
+                    with self._counter_lock:
+                        self.processed_files += 1
                     if ok:
                         success_count += 1
-                    elif reason in SKIP_REASONS:
+                    elif reason[0] in SKIP_REASONS:
                         skip_count += 1
                     else:
                         fail_count += 1
                         failed_files.append(
-                            (input_path, self._format_decrypt_error(reason))
+                            (input_path, self._format_decrypt_error(reason, run_lang))
                         )
 
-                    last_bucket = self._maybe_log_progress(total, last_bucket)
+                    last_bucket = self._maybe_log_progress(total, last_bucket, run_lang)
                     self._maybe_emit_ui_update(total, start_time)
             finally:
                 if cancelled_in_loop:
@@ -1218,9 +1491,11 @@ class DecrypterApp:
             "game_name":         game_name,
         }
 
-    def _log_summary(self, stats: dict, unsupported_count: int) -> None:
+
+    def _log_summary(self, stats: dict, unsupported_count: int, run_lang: str) -> None:
         self.log(
-            self.t(
+            self._t_lang(
+                run_lang,
                 "done_log",
                 success=stats["success_count"],
                 failed=stats["fail_count"],
@@ -1229,12 +1504,13 @@ class DecrypterApp:
             )
         )
         if stats["fail_count"] == 0:
-            self.log(self.t("done_all_success"))
+            self.log(self._t_lang(run_lang, "done_all_success"))
         else:
-            self.log(self.t("done_some_failed"))
-            self.log(self.t("failed_files_header"))
+            self.log(self._t_lang(run_lang, "done_some_failed"))
+            self.log(self._t_lang(run_lang, "failed_files_header"))
             for path, reason in stats["failed_files"]:
-                self.log(self.t("file_failed", path=path, reason=reason))
+                self.log(self._t_lang(run_lang, "file_failed", path=path, reason=reason))
+
 
     def _update_progress(
         self,

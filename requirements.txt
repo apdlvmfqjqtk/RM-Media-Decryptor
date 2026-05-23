@@ -1,4 +1,4 @@
 # Runtime: pure standard library (tkinter ships with Python on Windows).
 
 # Build-only (used by RM_Media_Decryptor.spec)
-pyinstaller>=6.0.0
+pyinstaller>=6.0.0,<7.0.0

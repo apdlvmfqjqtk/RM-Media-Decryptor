@@ -16,10 +16,19 @@ import os
 VALID_LANGUAGES    = {"ko", "en", "ja", "zh"}
 VALID_TARGET_MODES = {"both", "image", "audio"}
 
+LEGACY_KEYS = (
+    "decryption_key", "encryption_key", "key",
+    "appearance", "overwrite",
+    "workers", "priority",
+)
+
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+_cached_config_dir: str | None = None
 
 def _config_path() -> str:
     """Return the absolute path to the config file.
@@ -27,12 +36,15 @@ def _config_path() -> str:
     The application directory is created on demand so that importing this
     module never triggers file-system side effects.
     """
-    base_dir = os.getenv("APPDATA") or os.path.join(
-        os.path.expanduser("~"), "AppData", "Roaming"
-    )
-    app_dir = os.path.join(base_dir, "RPGDecrypter")
-    os.makedirs(app_dir, exist_ok=True)
-    return os.path.join(app_dir, "config.json")
+    global _cached_config_dir
+    if _cached_config_dir is None:
+        base_dir = os.getenv("APPDATA") or os.path.join(
+            os.path.expanduser("~"), "AppData", "Roaming"
+        )
+        _cached_config_dir = os.path.join(base_dir, "RPGDecrypter")
+        os.makedirs(_cached_config_dir, exist_ok=True)
+    return os.path.join(_cached_config_dir, "config.json")
+
 
 
 def _sanitize(data: dict) -> dict:
@@ -81,25 +93,27 @@ def load_config_data() -> tuple[dict, Exception | None]:
 
     # Security hygiene + schema cleanup: purge any legacy fields we no
     # longer support so re-saving doesn't carry them forward.
-    legacy_keys = (
-        "decryption_key", "encryption_key", "key",
-        "appearance", "overwrite",
-        "workers", "priority",
-    )
-    for k in legacy_keys:
-        data.pop(k, None)
+    had_legacy = False
+    for k in LEGACY_KEYS:
+        if k in data:
+            data.pop(k, None)
+            had_legacy = True
 
     sanitized = _sanitize(data)
 
     # Re-save only when the file contained stale or invalid data so that
     # a normal startup does not incur a pointless write.
-    if data != sanitized:
+    # We only save if we had legacy keys, or if any of the active keys in data had a different value/was missing.
+    is_dirty = had_legacy or any(data.get(k) != sanitized[k] for k in sanitized)
+    if is_dirty:
         try:
             save_config_data(**sanitized)
-        except Exception:
-            pass
+        except Exception as e:
+            import sys
+            sys.stderr.write(f"[config] Failed to re-save config: {e}\n")
 
     return sanitized, None
+
 
 
 def save_config_data(

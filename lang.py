@@ -488,3 +488,17 @@ TEXT = {
         "fatal_error": "[Fatal] 运行期间发生致命错误: {error}",
     },
 }
+
+# =====================================================================
+# 3. Translation key validation
+# =====================================================================
+# Programmatically verify translation key completeness at import time
+_all_keys = set(TEXT["ko"].keys())
+for _lang in ("en", "ja", "zh"):
+    _missing = _all_keys - set(TEXT[_lang].keys())
+    if _missing:
+        raise AssertionError(f"Language '{_lang}' is missing translation keys: {_missing}")
+    _extra = set(TEXT[_lang].keys()) - _all_keys
+    if _extra:
+        raise AssertionError(f"Language '{_lang}' has extra translation keys: {_extra}")
+

@@ -251,8 +251,8 @@ def unique_output_path(path: str) -> str:
     """Return *path* if it does not exist, otherwise append an incrementing
     numeric suffix until a free path is found.
 
-    Tries up to 9 999 numeric suffixes; falls back to a Unix-timestamp suffix
-    to guarantee uniqueness without an unbounded loop.
+    Tries up to 9 999 numeric suffixes; falls back to a UUID suffix
+    to guarantee uniqueness without an unbounded loop or timing race conditions.
     """
     if not os.path.exists(path):
         return path
@@ -263,10 +263,10 @@ def unique_output_path(path: str) -> str:
         if not os.path.exists(candidate):
             return candidate
 
-    # Extreme fallback: use the current timestamp (microsecond resolution).
-    # time_ns gives full integer precision; floats from time.time() lose
-    # sub-second precision past 2038-ish.
-    return f"{base}_{time.time_ns() // 1000}{ext}"
+    # Extreme fallback: use a short UUID to guarantee uniqueness.
+    import uuid
+    return f"{base}_{uuid.uuid4().hex[:8]}{ext}"
+
 
 
 # ---------------------------------------------------------------------------
@@ -304,7 +304,7 @@ def classify_input_header(header_data: bytes) -> str:
     return "not_encrypted"
 
 
-def decrypt_asset(input_path: str, output_path: str, key_bytes: bytes):
+def decrypt_asset(input_path: str, output_path: str, key_bytes: bytes) -> tuple[bool, tuple[str, str]]:
     """Decrypt a single encrypted RPG Maker asset.
 
     Algorithm:
@@ -320,8 +320,8 @@ def decrypt_asset(input_path: str, output_path: str, key_bytes: bytes):
                      a batch operation.
 
     Returns:
-        ``(True, "")`` on success.
-        ``(False, status_code_or_tuple)`` on skip or failure.
+        ``(True, ("", ""))`` on success.
+        ``(False, (status_code, detail))`` on skip or failure.
     """
     # Defensive check: callers always pass a 16-byte key from a validated
     # 32-char hex string, but guard against accidental misuse.
@@ -335,7 +335,7 @@ def decrypt_asset(input_path: str, output_path: str, key_bytes: bytes):
             header_data    = fin.read(32)
             classification = classify_input_header(header_data)
             if classification != "ok":
-                return False, classification
+                return False, (classification, "")
 
             # XOR the 16 encrypted bytes against the first 16 bytes of the key.
             header = bytes(a ^ b for a, b in zip(header_data[16:32], key_bytes[:16]))
@@ -343,7 +343,7 @@ def decrypt_asset(input_path: str, output_path: str, key_bytes: bytes):
             # Verify the decrypted header matches the expected file signature.
             sig_error = _verify_signature(output_path, header)
             if sig_error is not None:
-                return False, sig_error
+                return False, (sig_error, "")
 
             # Write decrypted header + remaining file data to a temp file,
             # then atomically replace the destination.
@@ -352,7 +352,7 @@ def decrypt_asset(input_path: str, output_path: str, key_bytes: bytes):
                 shutil.copyfileobj(fin, fout, length=COPY_BUFSIZE)
 
         os.replace(tmp_path, output_path)
-        return True, ""
+        return True, ("", "")
 
     except OSError as e:
         _cleanup_tmp(tmp_path)
@@ -360,6 +360,7 @@ def decrypt_asset(input_path: str, output_path: str, key_bytes: bytes):
     except Exception as e:
         _cleanup_tmp(tmp_path)
         return False, ("raw_error", str(e) or "unknown_error")
+
 
 
 # Output-extension -> (validator, error_code) for the post-XOR header check.
