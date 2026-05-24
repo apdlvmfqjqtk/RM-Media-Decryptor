@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import struct
 import time
 from typing import NamedTuple
 
@@ -389,3 +390,275 @@ def _cleanup_tmp(tmp_path: str) -> None:
             os.remove(tmp_path)
     except Exception:
         pass
+
+
+def recover_key_from_png(filepath: str) -> str | None:
+    """Recover the 32-character hex encryption key from an encrypted PNG file.
+
+    The first 16 bytes of a decrypted PNG are always:
+    \\x89PNG\\r\\n\\x1a\\n\\x00\\x00\\x00\\rIHDR
+    We read bytes 16 to 32 from the encrypted file and XOR with this header.
+    """
+    try:
+        if not os.path.isfile(filepath):
+            return None
+        with open(filepath, "rb") as f:
+            header = f.read(32)
+        if len(header) < 32 or not header.startswith(RPGMV_HEADER_MAGIC):
+            return None
+        png_header = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+        key_bytes = bytes(a ^ b for a, b in zip(header[16:32], png_header))
+        return key_bytes.hex()
+    except Exception:
+        return None
+
+
+def restore_png_no_key(input_path: str, output_path: str) -> tuple[bool, tuple[str, str]]:
+    """Restore an encrypted RPG Maker PNG file without knowing the encryption key.
+
+    It simply replaces the 16 encrypted bytes with the standard PNG/IHDR header.
+    """
+    tmp_path = output_path + ".tmp"
+    try:
+        with open(input_path, "rb") as fin:
+            header = fin.read(32)
+            if len(header) < 32 or not header.startswith(RPGMV_HEADER_MAGIC):
+                return False, ("not_encrypted", "")
+            png_header = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+            with open(tmp_path, "wb") as fout:
+                fout.write(png_header)
+                shutil.copyfileobj(fin, fout, length=COPY_BUFSIZE)
+        os.replace(tmp_path, output_path)
+        return True, ("", "")
+    except OSError as e:
+        _cleanup_tmp(tmp_path)
+        return False, ("io_error", str(e))
+    except Exception as e:
+        _cleanup_tmp(tmp_path)
+        return False, ("raw_error", str(e) or "unknown_error")
+
+
+def encrypt_asset(input_path: str, output_path: str, key_bytes: bytes) -> tuple[bool, tuple[str, str]]:
+    """Encrypt a plain media file (PNG, OGG, M4A) to an RPG Maker encrypted asset.
+
+    Algorithm:
+        1. Prepend the 16-byte RPGMV header magic.
+        2. XOR the first 16 bytes of the input file with key_bytes.
+        3. Append the remaining file content unchanged.
+    """
+    if len(key_bytes) < 16:
+        return False, ("raw_error", "key_too_short")
+    tmp_path = output_path + ".tmp"
+    try:
+        with open(input_path, "rb") as fin:
+            header_data = fin.read(16)
+            if len(header_data) < 16:
+                return False, ("too_small", "")
+            
+            # The standard RPG Maker MV/MZ 16-byte header
+            rpgmv_header = b"RPGMV\x00\x00\x00\x00\x03\x00\x00\x00\x00\x00\x00\x00"
+            encrypted_header = bytes(a ^ b for a, b in zip(header_data, key_bytes[:16]))
+            with open(tmp_path, "wb") as fout:
+                fout.write(rpgmv_header)
+                fout.write(encrypted_header)
+                shutil.copyfileobj(fin, fout, length=COPY_BUFSIZE)
+        os.replace(tmp_path, output_path)
+        return True, ("", "")
+    except OSError as e:
+        _cleanup_tmp(tmp_path)
+        return False, ("io_error", str(e))
+    except Exception as e:
+        _cleanup_tmp(tmp_path)
+        return False, ("raw_error", str(e) or "unknown_error")
+
+
+# ---------------------------------------------------------------------------
+# RGSS Archive Extraction (XP/VX/VX Ace)
+# ---------------------------------------------------------------------------
+
+def _advance_magic(magic: int) -> tuple[int, int]:
+    old = magic
+    magic = (magic * 7 + 3) & 0xFFFFFFFF
+    return old, magic
+
+def _ru32(stream) -> int | None:
+    data = stream.read(4)
+    if len(data) < 4:
+        return None
+    return struct.unpack('<I', data)[0]
+
+def _read_until_full(stream, size) -> bytes:
+    data = bytearray()
+    while len(data) < size:
+        chunk = stream.read(size - len(data))
+        if not chunk:
+            break
+        data.extend(chunk)
+    return bytes(data)
+
+class RGSSEntryData:
+    def __init__(self, offset=0, magic=0, size=0):
+        self.offset = offset
+        self.magic = magic
+        self.size = size
+
+class RGSSCoder:
+    def __init__(self):
+        self.buf = bytearray(COPY_BUFSIZE)
+
+    def copy(self, stream_in, stream_out, data, cancel_event=None):
+        stream_in.seek(data.offset)
+        magic = data.magic
+        remaining = data.size
+
+        while remaining > 0:
+            if cancel_event and cancel_event.is_set():
+                break
+            chunk_size = min(len(self.buf), remaining)
+            chunk = bytearray(_read_until_full(stream_in, chunk_size))
+            if not chunk:
+                break
+
+            # Process aligned u32 chunks
+            aligned_size = (len(chunk) // 4) * 4
+            for i in range(0, aligned_size, 4):
+                old_magic, magic = _advance_magic(magic)
+                val = struct.unpack('<I', chunk[i:i+4])[0]
+                val ^= old_magic
+                chunk[i:i+4] = struct.pack('<I', val)
+
+            # Process remaining bytes
+            for i in range(aligned_size, len(chunk)):
+                chunk[i] ^= (magic >> ((i % 4) * 8)) & 0xFF
+
+            stream_out.write(chunk)
+            remaining -= len(chunk)
+
+class RGSSEntry:
+    def __init__(self, name: str, data: RGSSEntryData):
+        self.name = name
+        self.data = data
+
+class RGSSArchive:
+    def __init__(self, magic: int, version: int, entries: list[RGSSEntry], stream):
+        self.magic = magic
+        self.version = version
+        self.entries = entries
+        self.stream = stream
+
+    def close(self):
+        if self.stream and not self.stream.closed:
+            self.stream.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    @classmethod
+    def open(cls, location: str):
+        stream = open(location, 'rb')
+        try:
+            header = stream.read(8)
+            if header[:6] != b'RGSSAD':
+                raise ValueError("Input file header mismatch.")
+            version = header[7]
+            if version in (1, 2):
+                return cls.open_rgssad(stream, version)
+            elif version == 3:
+                return cls.open_rgss3a(stream, version)
+            else:
+                raise ValueError("Not supported version (must be 1-3).")
+        except Exception:
+            stream.close()
+            raise
+
+    @classmethod
+    def open_rgssad(cls, stream, version):
+        magic = 0xDEADCAFE
+        entries = []
+        stream.seek(8)
+
+        while True:
+            name_len = _ru32(stream)
+            if name_len is None:
+                break
+            name_len ^= _advance_magic(magic)[0]
+
+            name = bytearray()
+            for _ in range(name_len):
+                b_data = stream.read(1)
+                if not b_data:
+                    break
+                name_byte = b_data[0]
+                name_byte ^= _advance_magic(magic)[0] & 0xFF
+                name.append(name_byte)
+            
+            if len(name) < name_len:
+                break
+                
+            name = name.replace(b'\\\\', b'/').replace(b'\\', b'/').decode('utf-8', 'ignore')
+            size = _ru32(stream)
+            if size is None:
+                break
+            size ^= _advance_magic(magic)[0]
+
+            offset = stream.tell()
+            stream.seek(size, 1)
+            entries.append(RGSSEntry(name, RGSSEntryData(offset, magic, size)))
+
+        stream.seek(0)
+        return cls(magic, version, entries, stream)
+
+    @classmethod
+    def open_rgss3a(cls, stream, version):
+        stream.seek(8)
+        magic = _ru32(stream)
+        if magic is None:
+            raise ValueError("Magic number read failed.")
+        magic = (magic * 9 + 3) & 0xFFFFFFFF
+        entries = []
+
+        while True:
+            offset = _ru32(stream)
+            if offset is None:
+                break
+            offset ^= magic
+            
+            if offset == 0:
+                break
+
+            size = _ru32(stream)
+            if size is None:
+                break
+            size ^= magic
+            
+            start_magic = _ru32(stream)
+            if start_magic is None:
+                break
+            start_magic ^= magic
+            
+            name_len = _ru32(stream)
+            if name_len is None:
+                break
+            name_len ^= magic
+
+            name = bytearray()
+            for i in range(name_len):
+                b_data = stream.read(1)
+                if not b_data:
+                    break
+                name_byte = b_data[0]
+                name_byte ^= (magic >> ((i % 4) * 8)) & 0xFF
+                name.append(name_byte)
+            
+            if len(name) < name_len:
+                break
+                
+            name = name.replace(b'\\\\', b'/').replace(b'\\', b'/').decode('utf-8', 'ignore')
+            entries.append(RGSSEntry(name, RGSSEntryData(offset, start_magic, size)))
+
+        stream.seek(0)
+        return cls(magic, version, entries, stream)
+

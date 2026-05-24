@@ -41,12 +41,17 @@ from rpg_core import (
     PLAIN_MEDIA_EXT,
     SystemJsonScan,
     decrypt_asset,
+    encrypt_asset,
+    restore_png_no_key,
+    RGSSArchive,
+    RGSSCoder,
     extract_key_from_system_json,
     get_target_extensions,
     mask_key,
     unique_output_path,
     validate_key,
     validate_paths,
+    IMAGE_EXTS,
 )
 
 # =====================================================================
@@ -284,6 +289,28 @@ def _pick_default_family(lang: str = "ko") -> str:
     return "TkDefaultFont"
 
 
+def get_toplevel_hwnd(root) -> int:
+    hwnd = root.winfo_id()
+    try:
+        parent = ctypes.windll.user32.GetAncestor(hwnd, 2)  # GA_ROOT = 2
+        if parent:
+            return parent
+    except Exception:
+        pass
+    # fallback
+    try:
+        GetParent = ctypes.windll.user32.GetParent
+        current = hwnd
+        while True:
+            p = GetParent(current)
+            if not p:
+                break
+            current = p
+        return current
+    except Exception:
+        return hwnd
+
+
 # =====================================================================
 # Main application
 # =====================================================================
@@ -299,7 +326,7 @@ class DecrypterApp:
         _apply_tk_dpi_scaling(self.root)
 
         # Pick a reasonable, non-resizable window size.
-        self.root.geometry("800x750")
+        self.root.geometry("900x750")
         self.root.resizable(False, False)
         self.root.configure(bg=COLORS["bg"])
 
@@ -308,6 +335,7 @@ class DecrypterApp:
         # both read current_lang during startup.
         self.current_lang        = "ko"
         self.current_target_mode = "both"
+        self.current_task_mode   = "decrypt"
         self.is_processing       = False
         self.processed_files     = 0
         self.total_files         = 0
@@ -322,6 +350,7 @@ class DecrypterApp:
         # Menu variables lazily initialized or None
         self._lang_var             = None
         self._mode_var             = None
+        self._task_mode_var        = None
 
         # Status-label state.
         self._status_key:  str | None = None
@@ -334,6 +363,8 @@ class DecrypterApp:
         self.input_dir_var  = tk.StringVar()
         self.output_dir_var = tk.StringVar()
         self.auto_open_var  = tk.BooleanVar(value=False)
+        self.no_key_png_var = tk.BooleanVar(value=False)
+        self.flatten_var    = tk.BooleanVar(value=False)
 
         # Load persisted (non-sensitive) settings BEFORE font/UI setup so a
         # saved language can affect the initial font choice and menu labels.
@@ -354,6 +385,9 @@ class DecrypterApp:
         self._setup_placeholders()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        # Setup drag & drop hook after window is mapped/ready
+        self.root.after(100, self._setup_dnd)
 
         # First language pass: no log entry, no config write.
         self.apply_language(log_change=False, save=False)
@@ -513,6 +547,8 @@ class DecrypterApp:
             self.current_target_mode = target_mode
 
         self.auto_open_var.set(bool(data.get("auto_open", False)))
+        self.no_key_png_var.set(bool(data.get("no_key_png", False)))
+        self.flatten_var.set(bool(data.get("flatten", False)))
 
     def save_config(self) -> bool:
         out_dir = self.output_dir_var.get()
@@ -525,6 +561,8 @@ class DecrypterApp:
             language=self.current_lang,
             target_mode=self.current_target_mode,
             auto_open=self.auto_open_var.get(),
+            no_key_png=self.no_key_png_var.get(),
+            flatten=self.flatten_var.get(),
         )
         if not ok:
             self.log(self.t("config_saved_fail", error=error))
@@ -554,10 +592,12 @@ class DecrypterApp:
         # Each cascade is rebuilt in apply_language(); stash references.
         self._menu_lang = tk.Menu(menubar, tearoff=0)
         self._menu_mode = tk.Menu(menubar, tearoff=0)
+        self._menu_task_mode = tk.Menu(menubar, tearoff=0)
 
         # Index of each cascade so apply_language can re-label it.
         menubar.add_cascade(label="", menu=self._menu_lang)  # idx 0
         menubar.add_cascade(label="", menu=self._menu_mode)  # idx 1
+        menubar.add_cascade(label="", menu=self._menu_task_mode) # idx 2
 
         self._populate_menus()
 
@@ -583,6 +623,16 @@ class DecrypterApp:
                 command=lambda m=mode: self.on_target_mode_changed(m),
             )
 
+        # Task mode
+        self._menu_task_mode.delete(0, "end")
+        for mode in ("decrypt", "encrypt", "unpack"):
+            self._menu_task_mode.add_radiobutton(
+                label=self.t(f"task_mode_{mode}"),
+                value=mode,
+                variable=self._task_mode_radio_var(),
+                command=lambda m=mode: self.on_task_mode_changed(m),
+            )
+
     # Lazily-allocated radio-button variables (one per menu).
     def _lang_radio_var(self) -> tk.StringVar:
         if self._lang_var is None:
@@ -593,6 +643,11 @@ class DecrypterApp:
         if self._mode_var is None:
             self._mode_var = tk.StringVar(value=self.current_target_mode)
         return self._mode_var
+
+    def _task_mode_radio_var(self) -> tk.StringVar:
+        if self._task_mode_var is None:
+            self._task_mode_var = tk.StringVar(value=self.current_task_mode)
+        return self._task_mode_var
 
 
     def _refresh_current_language_fonts(self) -> None:
@@ -609,6 +664,8 @@ class DecrypterApp:
             (getattr(self, "entry_key", None), self._mono_font),
             (getattr(self, "log_area", None), self._log_font),
             (getattr(self, "chk_auto_open", None), self._small_font),
+            (getattr(self, "chk_no_key_png", None), self._small_font),
+            (getattr(self, "chk_flatten", None), self._small_font),
         ):
             if widget is not None:
                 try:
@@ -631,6 +688,16 @@ class DecrypterApp:
         self._mode_radio_var().set(mode)
         self.log(
             self.t("mode_changed", label=self.t(TARGET_MODE_TEXT_KEYS[mode]))
+        )
+        self.save_config()
+
+    def on_task_mode_changed(self, mode: str) -> None:
+        if mode not in ("decrypt", "encrypt", "unpack"):
+            return
+        self.current_task_mode = mode
+        self._task_mode_radio_var().set(mode)
+        self.log(
+            self.t("mode_changed", label=self.t(f"task_mode_{mode}"))
         )
         self.save_config()
 
@@ -698,11 +765,12 @@ class DecrypterApp:
         form.grid_columnconfigure(0, minsize=70)
         form.grid_columnconfigure(2, minsize=60)
 
-        # ── Auto-open checkbox ───────────────────────────────────────
-        # Font is shrunk to the small size so the label visually matches
-        # the native Windows checkbox indicator (which Tk cannot resize).
+        # ── Checkboxes ────────────────────────────────────────────────
+        chk_frame = tk.Frame(outer, bg=bg)
+        chk_frame.pack(fill="x", pady=(8, 0))
+
         self.chk_auto_open = tk.Checkbutton(
-            outer, text="", variable=self.auto_open_var,
+            chk_frame, text="", variable=self.auto_open_var,
             bg=bg, fg=COLORS["fg"],
             activebackground=bg, activeforeground=COLORS["fg"],
             selectcolor=COLORS["entry_bg"],
@@ -710,7 +778,29 @@ class DecrypterApp:
             font=self._small_font,
             command=self.save_config,
         )
-        self.chk_auto_open.pack(fill="x", pady=(8, 0))
+        self.chk_auto_open.pack(side="left", padx=(0, 20))
+
+        self.chk_no_key_png = tk.Checkbutton(
+            chk_frame, text="", variable=self.no_key_png_var,
+            bg=bg, fg=COLORS["fg"],
+            activebackground=bg, activeforeground=COLORS["fg"],
+            selectcolor=COLORS["entry_bg"],
+            highlightthickness=0, bd=0, anchor="w",
+            font=self._small_font,
+            command=self.save_config,
+        )
+        self.chk_no_key_png.pack(side="left", padx=(0, 20))
+
+        self.chk_flatten = tk.Checkbutton(
+            chk_frame, text="", variable=self.flatten_var,
+            bg=bg, fg=COLORS["fg"],
+            activebackground=bg, activeforeground=COLORS["fg"],
+            selectcolor=COLORS["entry_bg"],
+            highlightthickness=0, bd=0, anchor="w",
+            font=self._small_font,
+            command=self.save_config,
+        )
+        self.chk_flatten.pack(side="left", padx=(0, 20))
 
         # ── Run button ───────────────────────────────────────────────
         self.btn_run = self._make_button(outer, command=self.start_processing,
@@ -832,11 +922,13 @@ class DecrypterApp:
         # Menubar cascade titles
         self._menubar.entryconfigure(0, label=self.t("menu_language"))
         self._menubar.entryconfigure(1, label=self.t("menu_mode"))
+        self._menubar.entryconfigure(2, label=self.t("menu_task_mode"))
 
         # Repopulate so target_mode items pick up the new language.
         self._populate_menus()
         self._lang_radio_var().set(self.current_lang)
         self._mode_radio_var().set(self.current_target_mode)
+        self._task_mode_radio_var().set(self.current_task_mode)
 
         # Update placeholders if they are active
         for var, key in (
@@ -866,6 +958,8 @@ class DecrypterApp:
         )
 
         self.chk_auto_open.configure(text=self.t("auto_open_label"))
+        self.chk_no_key_png.configure(text=self.t("no_key_png_label"))
+        self.chk_flatten.configure(text=self.t("flatten_label"))
 
         # Run / Cancel button — keep current state's text.
         if not self.is_processing:
@@ -981,6 +1075,20 @@ class DecrypterApp:
 
 
     def select_game_folder(self) -> None:
+        if self.current_task_mode == "unpack":
+            selected_file = filedialog.askopenfilename(
+                parent=self.root,
+                title=self.t("select_game_dialog"),
+                filetypes=[
+                    ("RPG Maker Archive", "*.rgss3a *.rgss2a *.rgssad"),
+                    ("All Files", "*.*")
+                ]
+            )
+            if not selected_file:
+                return
+            self.input_dir_var.set(selected_file)
+            return
+
         selected_dir = filedialog.askdirectory(
             parent=self.root, title=self.t("select_game_dialog")
         )
@@ -1014,13 +1122,30 @@ class DecrypterApp:
         if scan.key:
             self.key_var.set(scan.key)
             self.log(self.t("key_found", key=mask_key(scan.key)))
-        elif scan.found_system_json:
-            if not scan.has_encrypted_images and not scan.has_encrypted_audio:
-                self.log(self.t("unencrypted_game"))
-            else:
-                self.log(self.t("encrypted_no_key"))
         else:
-            self.log(self.t("key_search_failed"))
+            # Try to recover key from PNG
+            from rpg_core import recover_key_from_png
+            recovered_key = None
+            for r, _, files in os.walk(input_dir):
+                for f in files:
+                    ext = os.path.splitext(f)[1].lower()
+                    if ext in (".rpgmvp", ".png_"):
+                        test_path = os.path.join(r, f)
+                        recovered_key = recover_key_from_png(test_path)
+                        if recovered_key:
+                            break
+                if recovered_key:
+                    break
+            if recovered_key:
+                self.key_var.set(recovered_key)
+                self.log(self.t("key_recovered_log", key=mask_key(recovered_key)))
+            elif scan.found_system_json:
+                if not scan.has_encrypted_images and not scan.has_encrypted_audio:
+                    self.log(self.t("unencrypted_game"))
+                else:
+                    self.log(self.t("encrypted_no_key"))
+            else:
+                self.log(self.t("key_recovery_fail_log"))
 
     @staticmethod
     def _looks_like_rpg_folder(path: str) -> bool:
@@ -1165,25 +1290,49 @@ class DecrypterApp:
             if output_dir == TEXT[l].get("output_placeholder"):
                 output_dir = ""
 
-        if not key or not input_dir or not output_dir:
-            messagebox.showwarning(
-                self.t("warning_title"), self.t("missing_fields"), parent=self.root
-            )
-            return
+        # Validate input/output based on task mode
+        if self.current_task_mode == "unpack":
+            if not input_dir or not output_dir:
+                messagebox.showwarning(
+                    self.t("warning_title"), self.t("missing_fields"), parent=self.root
+                )
+                return
+            if not os.path.isfile(input_dir):
+                messagebox.showwarning(
+                    self.t("warning_title"), self.t("invalid_input_dir"), parent=self.root
+                )
+                return
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+            except Exception:
+                messagebox.showwarning(
+                    self.t("warning_title"), self.t("invalid_output_dir"), parent=self.root
+                )
+                return
+        else:
+            # decrypt or encrypt
+            # If no_key_png is enabled in decrypt, key can be empty or invalid
+            allow_missing_key = (self.current_task_mode == "decrypt" and self.no_key_png_var.get())
+            if not input_dir or not output_dir or (not key and not allow_missing_key):
+                messagebox.showwarning(
+                    self.t("warning_title"), self.t("missing_fields"), parent=self.root
+                )
+                return
 
-        key_ok, key_msg = validate_key(key)
-        if not key_ok:
-            messagebox.showwarning(
-                self.t("warning_title"), self.t(key_msg), parent=self.root
-            )
-            return
+            if key:
+                key_ok, key_msg = validate_key(key)
+                if not key_ok and not allow_missing_key:
+                    messagebox.showwarning(
+                        self.t("warning_title"), self.t(key_msg), parent=self.root
+                    )
+                    return
 
-        path_ok, path_msg = validate_paths(input_dir, output_dir)
-        if not path_ok:
-            messagebox.showwarning(
-                self.t("warning_title"), self.t(path_msg), parent=self.root
-            )
-            return
+            path_ok, path_msg = validate_paths(input_dir, output_dir)
+            if not path_ok:
+                messagebox.showwarning(
+                    self.t("warning_title"), self.t(path_msg), parent=self.root
+                )
+                return
 
         self.is_processing   = True
         with self._counter_lock:
@@ -1210,7 +1359,16 @@ class DecrypterApp:
 
         worker = threading.Thread(
             target=self.process_files,
-            args=(key, input_dir, output_dir, self.current_target_mode, self.current_lang),
+            args=(
+                key,
+                input_dir,
+                output_dir,
+                self.current_target_mode,
+                self.current_lang,
+                self.current_task_mode,
+                self.no_key_png_var.get(),
+                self.flatten_var.get()
+            ),
             daemon=True,
         )
         worker.start()
@@ -1230,50 +1388,62 @@ class DecrypterApp:
         output_dir: str,
         target_mode: str,
         run_lang: str,
+        task_mode: str = "decrypt",
+        no_key_png: bool = False,
+        flatten: bool = False,
     ) -> None:
-        """Worker entry point: scan, decrypt, summarise."""
-        self.log(self._t_lang(run_lang, "start_log"))
+        """Worker entry point: scan, process, summarise based on task_mode."""
+        if task_mode == "decrypt":
+            self.log(self._t_lang(run_lang, "start_log"))
+        elif task_mode == "encrypt":
+            self.log(self._t_lang(run_lang, "encrypt_start_log"))
+        elif task_mode == "unpack":
+            self.log(self._t_lang(run_lang, "unpack_start_log"))
 
         try:
-            target_files, unsupported_count, plain_media_counts = self._scan_files(
-                input_dir, target_mode, run_lang
-            )
+            if task_mode == "unpack":
+                self._run_unpack_loop(input_dir, output_dir, run_lang, flatten)
+            elif task_mode == "encrypt":
+                self._run_encrypt_loop(key, input_dir, output_dir, target_mode, run_lang, flatten)
+            else:
+                # decrypt mode
+                target_files, unsupported_count, plain_media_counts = self._scan_files(
+                    input_dir, target_mode, run_lang
+                )
 
-            if any(plain_media_counts.values()):
-                self.log(
-                    self._t_lang(
-                        run_lang,
-                        "plain_media_summary",
-                        png=plain_media_counts[".png"],
-                        ogg=plain_media_counts[".ogg"],
-                        m4a=plain_media_counts[".m4a"],
+                if any(plain_media_counts.values()):
+                    self.log(
+                        self._t_lang(
+                            run_lang,
+                            "plain_media_summary",
+                            png=plain_media_counts[".png"],
+                            ogg=plain_media_counts[".ogg"],
+                            m4a=plain_media_counts[".m4a"],
+                        )
                     )
+
+                self.total_files = len(target_files)
+                self.root.after(0, self._end_scan_phase)
+
+                if self.total_files == 0:
+                    self.log(self._t_lang(run_lang, "no_files"))
+                    return
+
+                self.log(self._t_lang(run_lang, "count_log", total=self.total_files))
+                self.log(
+                    self._t_lang(run_lang, "progress_log", percent=0, processed=0, total=self.total_files)
                 )
 
-            self.total_files = len(target_files)
-
-            self.root.after(0, self._end_scan_phase)
-
-            if self.total_files == 0:
-                self.log(self._t_lang(run_lang, "no_files"))
-                return
-
-            self.log(self._t_lang(run_lang, "count_log", total=self.total_files))
-            self.log(
-                self._t_lang(run_lang, "progress_log", percent=0, processed=0, total=self.total_files)
-            )
-
-            stats = self._run_decrypt_loop(
-                target_files, key, input_dir, output_dir, run_lang
-            )
-
-            if not stats["cancelled_in_loop"]:
-                self._log_summary(stats, unsupported_count, run_lang)
-                self.root.after(
-                    0,
-                    lambda s=stats: self._show_completion_notification(s),
+                stats = self._run_decrypt_loop(
+                    target_files, key, input_dir, output_dir, run_lang, no_key_png, flatten
                 )
 
+                if not stats["cancelled_in_loop"]:
+                    self._log_summary(stats, unsupported_count, run_lang)
+                    self.root.after(
+                        0,
+                        lambda s=stats: self._show_completion_notification(s),
+                    )
         except Exception as e:
             err_msg = self._t_lang(run_lang, "fatal_error", error=e)
             self.log(err_msg)
@@ -1285,6 +1455,187 @@ class DecrypterApp:
             )
         finally:
             self.finish_processing()
+
+    def _run_encrypt_loop(
+        self,
+        key: str,
+        input_dir: str,
+        output_dir: str,
+        target_mode: str,
+        run_lang: str,
+        flatten: bool = False,
+    ) -> None:
+        self.log(self._t_lang(run_lang, "scan_log"))
+        
+        target_exts = PLAIN_MEDIA_EXTS_BY_TARGET.get(target_mode, PLAIN_MEDIA_EXTS_BY_TARGET["both"])
+        target_files = []
+        
+        for root_dir, _, files in os.walk(input_dir):
+            if self._cancel_event.is_set():
+                break
+            for filename in files:
+                ext = os.path.splitext(filename)[1].lower()
+                if ext in target_exts:
+                    full_path = os.path.join(root_dir, filename)
+                    if os.path.islink(full_path):
+                        continue
+                    target_files.append((root_dir, filename, ext))
+                    
+        self.total_files = len(target_files)
+        self.root.after(0, self._end_scan_phase)
+        
+        if self.total_files == 0:
+            self.log(self._t_lang(run_lang, "no_files"))
+            return
+            
+        self.log(self._t_lang(run_lang, "count_log", total=self.total_files))
+        self.log(
+            self._t_lang(run_lang, "progress_log", percent=0, processed=0, total=self.total_files)
+        )
+        
+        # Auto-detect MV vs MZ layout
+        is_mz = False
+        for r, _, files in os.walk(input_dir):
+            for f in files:
+                e = os.path.splitext(f)[1].lower()
+                if e in (".png_", ".ogg_", ".m4a_"):
+                    is_mz = True
+                    break
+                elif e in (".rpgmvp", ".rpgmvo", ".rpgmvm"):
+                    break
+            if is_mz:
+                break
+                
+        if is_mz:
+            enc_map = {".png": ".png_", ".ogg": ".ogg_", ".m4a": ".m4a_"}
+        else:
+            enc_map = {".png": ".rpgmvp", ".ogg": ".rpgmvo", ".m4a": ".rpgmvm"}
+            
+        try:
+            key_bytes = bytes.fromhex(key)
+        except Exception:
+            key_bytes = b"\x00" * 16
+        game_name = self._compute_game_name(input_dir)
+        tasks = self._prepare_tasks(
+            target_files, input_dir, output_dir, game_name, flatten, enc_map
+        )
+        
+        success_count = fail_count = skip_count = 0
+        failed_files = []
+        last_bucket = 0
+        cancelled_in_loop = False
+        start_time = time.monotonic()
+        total = self.total_files
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=DECRYPT_WORKERS) as ex:
+            futures = {
+                ex.submit(encrypt_asset, ip, op, key_bytes): (ip, op, ext)
+                for ip, op, ext in tasks
+            }
+            try:
+                for fut in concurrent.futures.as_completed(futures):
+                    if self._cancel_event.is_set():
+                        cancelled_in_loop = True
+                        self.log(self._t_lang(run_lang, "cancel_log"))
+                        break
+                        
+                    input_path, output_path, ext = futures[fut]
+                    try:
+                        ok, reason = fut.result()
+                    except Exception as e:
+                        ok, reason = False, ("raw_error", str(e) or "unknown_error")
+                        
+                    with self._counter_lock:
+                        self.processed_files += 1
+                        
+                    if ok:
+                        success_count += 1
+                    else:
+                        fail_count += 1
+                        failed_files.append((input_path, self._format_decrypt_error(reason, run_lang)))
+                        
+                    last_bucket = self._maybe_log_progress(total, last_bucket, run_lang)
+                    self._maybe_emit_ui_update(total, start_time)
+            finally:
+                if cancelled_in_loop:
+                    ex.shutdown(wait=False, cancel_futures=True)
+                    
+        stats = {
+            "success_count": success_count,
+            "fail_count": fail_count,
+            "skip_count": skip_count,
+            "failed_files": failed_files,
+            "cancelled_in_loop": cancelled_in_loop,
+            "total": total,
+            "game_name": game_name,
+        }
+        
+        if not cancelled_in_loop:
+            self._log_summary(stats, 0, run_lang)
+            self.root.after(0, lambda: self._show_completion_notification(stats))
+
+    def _run_unpack_loop(
+        self,
+        archive_path: str,
+        output_dir: str,
+        run_lang: str,
+        flatten: bool = False,
+    ) -> None:
+        self.log(self._t_lang(run_lang, "unpack_status", processed=0, total=0).split("...")[0] + "...")
+        
+        with RGSSArchive.open(archive_path) as archive:
+            entries = archive.entries
+            self.total_files = len(entries)
+            self.root.after(0, self._end_scan_phase)
+            
+            if self.total_files == 0:
+                self.log(self._t_lang(run_lang, "no_files"))
+                return
+                
+            self.log(self._t_lang(run_lang, "count_log", total=self.total_files))
+            
+            success_count = 0
+            coder = RGSSCoder()
+            start_time = time.monotonic()
+            
+            for idx, entry in enumerate(entries):
+                if self._cancel_event.is_set():
+                    self.log(self._t_lang(run_lang, "cancel_log"))
+                    break
+                    
+                name = entry.name
+                if flatten:
+                    name = os.path.basename(name)
+                    
+                out_path = os.path.join(output_dir, name)
+                out_path = unique_output_path(out_path)
+                
+                os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                
+                try:
+                    with open(out_path, "wb") as fout:
+                        coder.copy(archive.stream, fout, entry.data, self._cancel_event)
+                    if self._cancel_event.is_set():
+                        if os.path.exists(out_path):
+                            try:
+                                os.remove(out_path)
+                            except Exception:
+                                pass
+                        break
+                    success_count += 1
+                except Exception as e:
+                    self.log(f"[!] {entry.name} extraction failed: {e}")
+                    
+                with self._counter_lock:
+                    self.processed_files += 1
+                    
+                # UI progress updates
+                if idx % 10 == 0 or idx == self.total_files - 1:
+                    self._maybe_emit_ui_update(self.total_files, start_time)
+            
+            if not self._cancel_event.is_set():
+                self.log(self._t_lang(run_lang, "unpack_success_log", success=success_count))
+                self.root.after(0, lambda: self._show_completion_notification({"game_name": ""}))
 
 
     def _scan_files(
@@ -1349,28 +1700,34 @@ class DecrypterApp:
         input_dir: str,
         output_dir: str,
         game_name: str,
-    ) -> list[tuple[str, str]]:
-        """Build (input_path, output_path) pairs and ensure target dirs exist.
+        flatten: bool = False,
+        custom_ext_map: dict[str, str] | None = None,
+    ) -> list[tuple[str, str, str]]:
+        """Build (input_path, output_path, ext) tuples and ensure target dirs exist.
 
         Always uses unique_output_path: with the overwrite option removed,
         same-name outputs always get a `_1`, `_2`... suffix to preserve
         prior runs.
         """
-        tasks: list[tuple[str, str]] = []
+        ext_map = custom_ext_map or EXT_MAP
+        tasks: list[tuple[str, str, str]] = []
         for root_dir, filename, ext in target_files:
             input_path = os.path.join(root_dir, filename)
-            target_dir = self._compute_target_dir(
-                input_dir, output_dir, root_dir, game_name
-            )
+            if flatten:
+                target_dir = output_dir
+            else:
+                target_dir = self._compute_target_dir(
+                    input_dir, output_dir, root_dir, game_name
+                )
             if os.path.islink(target_dir):
                 continue
             os.makedirs(target_dir, exist_ok=True)
             stem, _   = os.path.splitext(filename)
-            desired   = os.path.join(target_dir, stem + EXT_MAP[ext])
+            desired   = os.path.join(target_dir, stem + ext_map.get(ext, ext))
             if os.path.islink(desired):
                 continue
             output_path = unique_output_path(desired)
-            tasks.append((input_path, output_path))
+            tasks.append((input_path, output_path, ext))
         return tasks
 
 
@@ -1427,6 +1784,8 @@ class DecrypterApp:
         input_dir: str,
         output_dir: str,
         run_lang: str,
+        no_key_png: bool = False,
+        flatten: bool = False,
     ) -> dict:
         """Decrypt every file in *target_files* using a thread pool."""
         success_count = fail_count = skip_count = 0
@@ -1435,10 +1794,13 @@ class DecrypterApp:
         cancelled_in_loop = False
 
         start_time = time.monotonic()
-        key_bytes  = bytes.fromhex(key)
+        try:
+            key_bytes = bytes.fromhex(key)
+        except Exception:
+            key_bytes = b"\x00" * 16
         game_name  = self._compute_game_name(input_dir)
         tasks      = self._prepare_tasks(
-            target_files, input_dir, output_dir, game_name
+            target_files, input_dir, output_dir, game_name, flatten
         )
         total = self.total_files
 
@@ -1446,8 +1808,8 @@ class DecrypterApp:
             max_workers=DECRYPT_WORKERS
         ) as ex:
             futures = {
-                ex.submit(decrypt_asset, ip, op, key_bytes): ip
-                for ip, op in tasks
+                ex.submit(decrypt_asset, ip, op, key_bytes): (ip, op, ext)
+                for ip, op, ext in tasks
             }
             try:
                 for fut in concurrent.futures.as_completed(futures):
@@ -1456,11 +1818,14 @@ class DecrypterApp:
                         self.log(self._t_lang(run_lang, "cancel_log"))
                         break
 
-                    input_path = futures[fut]
+                    input_path, output_path, ext = futures[fut]
                     try:
                         ok, reason = fut.result()
                     except Exception as e:
                         ok, reason = False, ("raw_error", str(e) or "unknown_error")
+
+                    if not ok and no_key_png and ext in IMAGE_EXTS:
+                        ok, reason = restore_png_no_key(input_path, output_path)
 
                     with self._counter_lock:
                         self.processed_files += 1
@@ -1524,13 +1889,28 @@ class DecrypterApp:
             self.progress_bar.configure(value=value * 100.0)
         except Exception:
             pass
-        self._set_status(
-            "decrypt_status",
-            processed=processed,
-            total=total,
-            percent=percent,
-            eta=self._format_eta(eta_seconds),
-        )
+        if self.current_task_mode == "unpack":
+            self._set_status(
+                "unpack_status",
+                processed=processed,
+                total=total,
+            )
+        elif self.current_task_mode == "encrypt":
+            self._set_status(
+                "encrypt_status",
+                processed=processed,
+                total=total,
+                percent=percent,
+                eta=self._format_eta(eta_seconds),
+            )
+        else:
+            self._set_status(
+                "decrypt_status",
+                processed=processed,
+                total=total,
+                percent=percent,
+                eta=self._format_eta(eta_seconds),
+            )
 
     def _format_eta(self, seconds: float | None) -> str:
         if seconds is None or seconds < 0:
@@ -1583,7 +1963,12 @@ class DecrypterApp:
             if cancelled:
                 self._set_status("cancel_status")
             elif self.total_files > 0:
-                self._set_status("complete_status")
+                if self.current_task_mode == "unpack":
+                    self._set_status("unpack_complete_status")
+                elif self.current_task_mode == "encrypt":
+                    self._set_status("encrypt_complete_status")
+                else:
+                    self._set_status("complete_status")
             else:
                 self._set_status("idle_status")
 
@@ -1606,13 +1991,162 @@ class DecrypterApp:
             self.root.after(CLOSE_POLL_INTERVAL_MS, self._poll_for_close)
             return
 
+        # Restore WndProc subclassing
+        if hasattr(self, "_old_wndproc") and self._old_wndproc:
+            try:
+                import platform
+                is_64bit = platform.architecture()[0] == '64bit'
+                try:
+                    SetWindowLong = ctypes.windll.user32.SetWindowLongPtrW
+                except AttributeError:
+                    SetWindowLong = ctypes.windll.user32.SetWindowLongW
+                SetWindowLong(self._hwnd, -4, self._old_wndproc)
+            except Exception:
+                pass
+
         self.root.destroy()
 
     def _poll_for_close(self) -> None:
         if self.is_processing:
             self.root.after(CLOSE_POLL_INTERVAL_MS, self._poll_for_close)
             return
+        # Restore WndProc subclassing
+        if hasattr(self, "_old_wndproc") and self._old_wndproc:
+            try:
+                import platform
+                is_64bit = platform.architecture()[0] == '64bit'
+                try:
+                    SetWindowLong = ctypes.windll.user32.SetWindowLongPtrW
+                except AttributeError:
+                    SetWindowLong = ctypes.windll.user32.SetWindowLongW
+                SetWindowLong(self._hwnd, -4, self._old_wndproc)
+            except Exception:
+                pass
         self.root.destroy()
+
+    def _setup_dnd(self) -> None:
+        try:
+            self._hwnd = get_toplevel_hwnd(self.root)
+            if self._hwnd:
+                ctypes.windll.shell32.DragAcceptFiles(self._hwnd, True)
+                
+                # Setup WndProc subclassing
+                import platform
+                is_64bit = platform.architecture()[0] == '64bit'
+                
+                if is_64bit:
+                    WPARAM = ctypes.c_uint64
+                    LPARAM = ctypes.c_int64
+                    LRESULT = ctypes.c_int64
+                    try:
+                        SetWindowLong = ctypes.windll.user32.SetWindowLongPtrW
+                    except AttributeError:
+                        SetWindowLong = ctypes.windll.user32.SetWindowLongW
+                    SetWindowLong.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+                    SetWindowLong.restype = ctypes.c_void_p
+                else:
+                    WPARAM = ctypes.c_uint32
+                    LPARAM = ctypes.c_int32
+                    LRESULT = ctypes.c_int32
+                    SetWindowLong = ctypes.windll.user32.SetWindowLongW
+                    SetWindowLong.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+                    SetWindowLong.restype = ctypes.c_void_p
+
+                CallWindowProc = ctypes.windll.user32.CallWindowProcW
+                CallWindowProc.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint, WPARAM, LPARAM]
+                CallWindowProc.restype = LRESULT
+                
+                WNDPROC = ctypes.WINFUNCTYPE(LRESULT, ctypes.c_void_p, ctypes.c_uint, WPARAM, LPARAM)
+                
+                def wndproc(hwnd, msg, wparam, lparam):
+                    if msg == 0x0233:  # WM_DROPFILES
+                        hDrop = wparam
+                        num_files = ctypes.windll.shell32.DragQueryFileW(hDrop, 0xFFFFFFFF, None, 0)
+                        paths = []
+                        for idx in range(num_files):
+                            length = ctypes.windll.shell32.DragQueryFileW(hDrop, idx, None, 0)
+                            buf = ctypes.create_unicode_buffer(length + 1)
+                            ctypes.windll.shell32.DragQueryFileW(hDrop, idx, buf, length + 1)
+                            paths.append(buf.value)
+                        ctypes.windll.shell32.DragFinish(hDrop)
+                        if paths:
+                            self.root.after(0, lambda: self._on_files_dropped(paths))
+                        return 0
+                    return CallWindowProc(self._old_wndproc, hwnd, msg, wparam, lparam)
+                
+                self._wndproc_callback = WNDPROC(wndproc)
+                self._old_wndproc = SetWindowLong(self._hwnd, -4, self._wndproc_callback) # GWL_WNDPROC = -4
+        except Exception as e:
+            sys.stderr.write(f"[dnd] Failed to hook DragAcceptFiles: {e}\n")
+
+    def _on_files_dropped(self, paths: list[str]) -> None:
+        if not paths:
+            return
+        path = paths[0]
+        
+        # Check if it's a legacy archive file
+        ext = os.path.splitext(path)[1].lower()
+        if ext in (".rgss3a", ".rgss2a", ".rgssad"):
+            self.current_task_mode = "unpack"
+            self._task_mode_radio_var().set("unpack")
+            self.input_dir_var.set(path)
+            self.log(self.t("mode_changed", label=self.t("task_mode_unpack")))
+            return
+            
+        # If it's a directory, set as input folder
+        if os.path.isdir(path):
+            # Autocorrect for MV/MZ layout
+            input_dir = (
+                os.path.join(path, "www")
+                if os.path.exists(os.path.join(path, "www", "img"))
+                else path
+            )
+            self.input_dir_var.set(input_dir)
+            
+            # If in unpack mode, switch back to decrypt.
+            if self._looks_like_rpg_folder(path) or self._looks_like_rpg_folder(input_dir):
+                if self.current_task_mode == "unpack":
+                    self.current_task_mode = "decrypt"
+                    self._task_mode_radio_var().set("decrypt")
+                    self.log(self.t("mode_changed", label=self.t("task_mode_decrypt")))
+            
+            # Perform automatic key recovery!
+            if self.current_task_mode in ("decrypt", "encrypt"):
+                self.log(self.t("key_search_header"))
+                scan: SystemJsonScan = extract_key_from_system_json(path)
+                for p, status_key, extra in scan.attempts:
+                    status_text = self._format_key_status(status_key, extra)
+                    self.log(self.t("key_search_path_check", path=p, status=status_text))
+
+                if scan.key:
+                    self.key_var.set(scan.key)
+                    self.log(self.t("key_found", key=mask_key(scan.key)))
+                else:
+                    # Try image recovery
+                    from rpg_core import recover_key_from_png
+                    recovered_key = None
+                    for r, _, files in os.walk(input_dir):
+                        for f in files:
+                            fext = os.path.splitext(f)[1].lower()
+                            if fext in (".rpgmvp", ".png_"):
+                                test_path = os.path.join(r, f)
+                                recovered_key = recover_key_from_png(test_path)
+                                if recovered_key:
+                                    break
+                        if recovered_key:
+                            break
+                    if recovered_key:
+                        self.key_var.set(recovered_key)
+                        self.log(self.t("key_recovered_log", key=mask_key(recovered_key)))
+                    elif scan.found_system_json:
+                        if not scan.has_encrypted_images and not scan.has_encrypted_audio:
+                            self.log(self.t("unencrypted_game"))
+                        else:
+                            self.log(self.t("encrypted_no_key"))
+                    else:
+                        self.log(self.t("key_recovery_fail_log"))
+        else:
+            self.input_dir_var.set(path)
 
 
 # =====================================================================

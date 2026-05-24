@@ -70,8 +70,11 @@ TEXT = {
         # status label
         "scan_status":    "스캔 중...",
         "decrypt_status": "복호화 중  {processed}/{total} ({percent}%)  |  {eta}",
+        "encrypt_status": "암호화 중  {processed}/{total} ({percent}%)  |  {eta}",
         "cancel_status":   "취소되었습니다.",
         "complete_status": "복호화가 완료되었습니다.",
+        "encrypt_complete_status": "암호화가 완료되었습니다.",
+        "unpack_complete_status": "아카이브 추출이 완료되었습니다.",
         "idle_status":     "대기 중",
 
         # ETA formatting
@@ -150,6 +153,21 @@ TEXT = {
 
         # misc
         "fatal_error": "[Fatal] 프로그램 실행 중 치명적인 오류가 발생했습니다: {error}",
+
+        # new options & features
+        "menu_task_mode":         "작업 모드",
+        "task_mode_decrypt":      "복호화 (Decrypter)",
+        "task_mode_encrypt":      "재암호화 (Encrypter)",
+        "task_mode_unpack":       "구버전 추출 (Archive Unpacker)",
+        "no_key_png_label":       "키 없이 이미지 강제 복원",
+        "flatten_label":          "폴더 구조 평탄화 (단일 폴더 저장)",
+        "no_key_png_status":      "키 없이 이미지 복원 모드로 시작합니다.",
+        "encrypt_start_log":      "[Start] 재암호화 작업을 시작합니다.",
+        "unpack_start_log":       "[Start] 구버전 아카이브 추출을 시작합니다.",
+        "unpack_status":          "아카이브 추출 중... {processed}/{total}",
+        "unpack_success_log":     "[Done] 아카이브 추출 완료 - {success}개 파일 성공",
+        "key_recovered_log":      "[*] 이미지 파일로부터 암호화 키 역추출 성공: {key}",
+        "key_recovery_fail_log":  "[!] 이미지 파일로부터 키를 추출하는 데 실패했습니다.",
     },
 
     "en": {
@@ -191,8 +209,11 @@ TEXT = {
 
         "scan_status":    "Scanning...",
         "decrypt_status": "Decrypting  {processed}/{total} ({percent}%)  |  ETA {eta}",
+        "encrypt_status": "Encrypting  {processed}/{total} ({percent}%)  |  ETA {eta}",
         "cancel_status":   "Cancelled.",
         "complete_status": "Decryption complete.",
+        "encrypt_complete_status": "Encryption complete.",
+        "unpack_complete_status": "Archive extraction complete.",
         "idle_status":     "Idle",
 
         "eta_seconds":  "{s}s",
@@ -262,6 +283,21 @@ TEXT = {
         "io_error":      "I/O error: {error}",
 
         "fatal_error": "[Fatal] A critical error occurred: {error}",
+
+        # new options & features
+        "menu_task_mode":         "Task Mode",
+        "task_mode_decrypt":      "Decrypt (Decrypter)",
+        "task_mode_encrypt":      "Re-Encrypt (Encrypter)",
+        "task_mode_unpack":       "Extract Archive (Archive Unpacker)",
+        "no_key_png_label":       "Force restore PNGs without key",
+        "flatten_label":          "Flatten folder structure",
+        "no_key_png_status":      "Starting image restoration without key.",
+        "encrypt_start_log":      "[Start] Starting re-encryption.",
+        "unpack_start_log":       "[Start] Starting archive extraction.",
+        "unpack_status":          "Extracting archive... {processed}/{total}",
+        "unpack_success_log":     "[Done] Archive extraction completed - {success} files extracted",
+        "key_recovered_log":      "[*] Encryption key recovered from image: {key}",
+        "key_recovery_fail_log":  "[!] Failed to recover key from image.",
     },
 
     "ja": {
@@ -303,8 +339,11 @@ TEXT = {
 
         "scan_status":    "スキャン中...",
         "decrypt_status": "復号中  {processed}/{total} ({percent}%)  |  残り {eta}",
+        "encrypt_status": "暗号化中  {processed}/{total} ({percent}%)  |  残り {eta}",
         "cancel_status":   "キャンセルされました。",
         "complete_status": "復号完了。",
+        "encrypt_complete_status": "暗号化完了。",
+        "unpack_complete_status": "アーカイブ抽出が完了しました。",
         "idle_status":     "待機中",
 
         "eta_seconds":  "{s} 秒",
@@ -374,6 +413,21 @@ TEXT = {
         "io_error":      "I/O エラー: {error}",
 
         "fatal_error": "[Fatal] 実行中に重大なエラーが発生しました: {error}",
+
+        # new options & features
+        "menu_task_mode":         "作業モード",
+        "task_mode_decrypt":      "復号 (Decrypter)",
+        "task_mode_encrypt":      "再暗号化 (Encrypter)",
+        "task_mode_unpack":       "アーカイブ展開 (Archive Unpacker)",
+        "no_key_png_label":       "キーなしで画像を強制復元",
+        "flatten_label":          "フォルダ構造の平坦化",
+        "no_key_png_status":      "キーなしの画像復元モードで開始します。",
+        "encrypt_start_log":      "[Start] 再暗号化処理を開始します。",
+        "unpack_start_log":       "[Start] アーカイブ展開処理を開始します。",
+        "unpack_status":          "展開中... {processed}/{total}",
+        "unpack_success_log":     "[Done] アーカイブ展開完了 - {success} 個のファイルを抽出",
+        "key_recovered_log":      "[*] 画像ファイルからの暗号化キー逆抽出成功: {key}",
+        "key_recovery_fail_log":  "[!] 画像ファイルからのキー抽出に失敗しました。",
     },
 
     "zh": {
@@ -415,8 +469,11 @@ TEXT = {
 
         "scan_status":    "扫描中...",
         "decrypt_status": "解密中  {processed}/{total} ({percent}%)  |  剩余 {eta}",
+        "encrypt_status": "加密中  {processed}/{total} ({percent}%)  |  剩余 {eta}",
         "cancel_status":   "已取消。",
         "complete_status": "解密完成。",
+        "encrypt_complete_status": "加密完成。",
+        "unpack_complete_status": "归档提取完成。",
         "idle_status":     "待机",
 
         "eta_seconds":  "{s} 秒",
@@ -486,6 +543,21 @@ TEXT = {
         "io_error":      "I/O 错误: {error}",
 
         "fatal_error": "[Fatal] 运行期间发生致命错误: {error}",
+
+        # new options & features
+        "menu_task_mode":         "工作模式",
+        "task_mode_decrypt":      "解密 (Decrypter)",
+        "task_mode_encrypt":      "重新加密 (Encrypter)",
+        "task_mode_unpack":       "解包归档 (Archive Unpacker)",
+        "no_key_png_label":       "无密钥强制恢复图像",
+        "flatten_label":          "扁平化文件夹结构",
+        "no_key_png_status":      "启动无密钥图像恢复模式。",
+        "encrypt_start_log":      "[Start] 开始重新加密。",
+        "unpack_start_log":       "[Start] 开始解包归档。",
+        "unpack_status":          "正在解包归档... {processed}/{total}",
+        "unpack_success_log":     "[Done] 归档解包完成 - 成功提取 {success} 个文件",
+        "key_recovered_log":      "[*] 从图像文件成功恢复加密密钥: {key}",
+        "key_recovery_fail_log":  "[!] 无法从图像中恢复密钥。",
     },
 }
 
