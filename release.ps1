@@ -32,6 +32,6 @@ try {
 
 # Create GitHub Release
 Write-Output "Creating GitHub Release v$version..."
-gh release create "v$version" $exePath --title "v$version" --notes "Release v$version of RM-Media-Decryptor. Includes new features: key recovery, keyless PNG restoration, re-encryption, drag-and-drop, and legacy archive extraction." --clobber
+gh release create "v$version" $exePath --title "v$version" --notes "Release v$version of RM-Media-Decryptor. Includes new features: key recovery, keyless PNG restoration, re-encryption, drag-and-drop, and legacy archive extraction."
 
 Write-Output "Release successfully published to GitHub!"
