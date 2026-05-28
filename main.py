@@ -2062,23 +2062,26 @@ class DecrypterApp:
                     _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
 
                 def wndproc(hwnd, msg, wparam, lparam):
-                    if msg == 0x0233:  # WM_DROPFILES
-                        hDrop = wparam
-                        pt = POINT()
-                        ctypes.windll.shell32.DragQueryPoint(hDrop, ctypes.byref(pt))
-                        ctypes.windll.user32.ClientToScreen(hwnd, ctypes.byref(pt))
-                        
-                        num_files = ctypes.windll.shell32.DragQueryFileW(hDrop, 0xFFFFFFFF, None, 0)
-                        paths = []
-                        for idx in range(num_files):
-                            length = ctypes.windll.shell32.DragQueryFileW(hDrop, idx, None, 0)
-                            buf = ctypes.create_unicode_buffer(length + 1)
-                            ctypes.windll.shell32.DragQueryFileW(hDrop, idx, buf, length + 1)
-                            paths.append(buf.value)
-                        ctypes.windll.shell32.DragFinish(hDrop)
-                        if paths:
-                            self.root.after(0, lambda p=paths, px=pt.x, py=pt.y: self._on_files_dropped(p, px, py))
-                        return 0
+                    try:
+                        if msg == 0x0233:  # WM_DROPFILES
+                            hDrop = wparam
+                            pt = POINT()
+                            ctypes.windll.shell32.DragQueryPoint(hDrop, ctypes.byref(pt))
+                            ctypes.windll.user32.ClientToScreen(hwnd, ctypes.byref(pt))
+                            
+                            num_files = ctypes.windll.shell32.DragQueryFileW(hDrop, 0xFFFFFFFF, None, 0)
+                            paths = []
+                            for idx in range(num_files):
+                                length = ctypes.windll.shell32.DragQueryFileW(hDrop, idx, None, 0)
+                                buf = ctypes.create_unicode_buffer(length + 1)
+                                ctypes.windll.shell32.DragQueryFileW(hDrop, idx, buf, length + 1)
+                                paths.append(buf.value)
+                            ctypes.windll.shell32.DragFinish(hDrop)
+                            if paths:
+                                self.root.after(0, lambda p=paths, px=pt.x, py=pt.y: self._on_files_dropped(p, px, py))
+                            return 0
+                    except Exception as e:
+                        sys.stderr.write(f"[dnd] Error in WndProc: {e}\n")
                     return CallWindowProc(self._old_wndproc, hwnd, msg, wparam, lparam)
                 
                 self._wndproc_callback = WNDPROC(wndproc)
