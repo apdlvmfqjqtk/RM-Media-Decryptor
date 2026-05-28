@@ -60,7 +60,7 @@ from rpg_core import (
 if sys.platform != "win32":
     raise SystemExit("This application currently supports Windows 10/11 only.")
 
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.2.0"
 
 
 # =====================================================================
