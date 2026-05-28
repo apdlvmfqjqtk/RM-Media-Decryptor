@@ -364,7 +364,6 @@ class DecrypterApp:
         self.output_dir_var = tk.StringVar()
         self.auto_open_var  = tk.BooleanVar(value=False)
         self.no_key_png_var = tk.BooleanVar(value=False)
-        self.flatten_var    = tk.BooleanVar(value=False)
 
         # Load persisted (non-sensitive) settings BEFORE font/UI setup so a
         # saved language can affect the initial font choice and menu labels.
@@ -548,7 +547,6 @@ class DecrypterApp:
 
         self.auto_open_var.set(bool(data.get("auto_open", False)))
         self.no_key_png_var.set(bool(data.get("no_key_png", False)))
-        self.flatten_var.set(bool(data.get("flatten", False)))
 
     def save_config(self) -> bool:
         out_dir = self.output_dir_var.get()
@@ -562,7 +560,6 @@ class DecrypterApp:
             target_mode=self.current_target_mode,
             auto_open=self.auto_open_var.get(),
             no_key_png=self.no_key_png_var.get(),
-            flatten=self.flatten_var.get(),
         )
         if not ok:
             self.log(self.t("config_saved_fail", error=error))
@@ -665,7 +662,6 @@ class DecrypterApp:
             (getattr(self, "log_area", None), self._log_font),
             (getattr(self, "chk_auto_open", None), self._small_font),
             (getattr(self, "chk_no_key_png", None), self._small_font),
-            (getattr(self, "chk_flatten", None), self._small_font),
         ):
             if widget is not None:
                 try:
@@ -790,17 +786,6 @@ class DecrypterApp:
             command=self.save_config,
         )
         self.chk_no_key_png.pack(side="left", padx=(0, 20))
-
-        self.chk_flatten = tk.Checkbutton(
-            chk_frame, text="", variable=self.flatten_var,
-            bg=bg, fg=COLORS["fg"],
-            activebackground=bg, activeforeground=COLORS["fg"],
-            selectcolor=COLORS["entry_bg"],
-            highlightthickness=0, bd=0, anchor="w",
-            font=self._small_font,
-            command=self.save_config,
-        )
-        self.chk_flatten.pack(side="left", padx=(0, 20))
 
         # ── Run button ───────────────────────────────────────────────
         self.btn_run = self._make_button(outer, command=self.start_processing,
@@ -959,7 +944,6 @@ class DecrypterApp:
 
         self.chk_auto_open.configure(text=self.t("auto_open_label"))
         self.chk_no_key_png.configure(text=self.t("no_key_png_label"))
-        self.chk_flatten.configure(text=self.t("flatten_label"))
 
         # Run / Cancel button — keep current state's text.
         if not self.is_processing:
@@ -1367,7 +1351,6 @@ class DecrypterApp:
                 self.current_lang,
                 self.current_task_mode,
                 self.no_key_png_var.get(),
-                self.flatten_var.get()
             ),
             daemon=True,
         )
@@ -1390,7 +1373,6 @@ class DecrypterApp:
         run_lang: str,
         task_mode: str = "decrypt",
         no_key_png: bool = False,
-        flatten: bool = False,
     ) -> None:
         """Worker entry point: scan, process, summarise based on task_mode."""
         if task_mode == "decrypt":
@@ -1402,9 +1384,9 @@ class DecrypterApp:
 
         try:
             if task_mode == "unpack":
-                self._run_unpack_loop(input_dir, output_dir, run_lang, flatten)
+                self._run_unpack_loop(input_dir, output_dir, run_lang)
             elif task_mode == "encrypt":
-                self._run_encrypt_loop(key, input_dir, output_dir, target_mode, run_lang, flatten)
+                self._run_encrypt_loop(key, input_dir, output_dir, target_mode, run_lang)
             else:
                 # decrypt mode
                 target_files, unsupported_count, plain_media_counts = self._scan_files(
@@ -1435,7 +1417,7 @@ class DecrypterApp:
                 )
 
                 stats = self._run_decrypt_loop(
-                    target_files, key, input_dir, output_dir, run_lang, no_key_png, flatten
+                    target_files, key, input_dir, output_dir, run_lang, no_key_png
                 )
 
                 if not stats["cancelled_in_loop"]:
@@ -1463,7 +1445,6 @@ class DecrypterApp:
         output_dir: str,
         target_mode: str,
         run_lang: str,
-        flatten: bool = False,
     ) -> None:
         self.log(self._t_lang(run_lang, "scan_log"))
         
@@ -1517,7 +1498,7 @@ class DecrypterApp:
             key_bytes = b"\x00" * 16
         game_name = self._compute_game_name(input_dir)
         tasks = self._prepare_tasks(
-            target_files, input_dir, output_dir, game_name, flatten, enc_map
+            target_files, input_dir, output_dir, game_name, custom_ext_map=enc_map
         )
         
         success_count = fail_count = skip_count = 0
@@ -1579,7 +1560,6 @@ class DecrypterApp:
         archive_path: str,
         output_dir: str,
         run_lang: str,
-        flatten: bool = False,
     ) -> None:
         self.log(self._t_lang(run_lang, "unpack_status", processed=0, total=0).split("...")[0] + "...")
         
@@ -1604,9 +1584,6 @@ class DecrypterApp:
                     break
                     
                 name = entry.name
-                if flatten:
-                    name = os.path.basename(name)
-                    
                 out_path = os.path.join(output_dir, name)
                 out_path = unique_output_path(out_path)
                 
@@ -1700,7 +1677,6 @@ class DecrypterApp:
         input_dir: str,
         output_dir: str,
         game_name: str,
-        flatten: bool = False,
         custom_ext_map: dict[str, str] | None = None,
     ) -> list[tuple[str, str, str]]:
         """Build (input_path, output_path, ext) tuples and ensure target dirs exist.
@@ -1713,12 +1689,9 @@ class DecrypterApp:
         tasks: list[tuple[str, str, str]] = []
         for root_dir, filename, ext in target_files:
             input_path = os.path.join(root_dir, filename)
-            if flatten:
-                target_dir = output_dir
-            else:
-                target_dir = self._compute_target_dir(
-                    input_dir, output_dir, root_dir, game_name
-                )
+            target_dir = self._compute_target_dir(
+                input_dir, output_dir, root_dir, game_name
+            )
             if os.path.islink(target_dir):
                 continue
             os.makedirs(target_dir, exist_ok=True)
@@ -1785,7 +1758,6 @@ class DecrypterApp:
         output_dir: str,
         run_lang: str,
         no_key_png: bool = False,
-        flatten: bool = False,
     ) -> dict:
         """Decrypt every file in *target_files* using a thread pool."""
         success_count = fail_count = skip_count = 0
@@ -1800,7 +1772,7 @@ class DecrypterApp:
             key_bytes = b"\x00" * 16
         game_name  = self._compute_game_name(input_dir)
         tasks      = self._prepare_tasks(
-            target_files, input_dir, output_dir, game_name, flatten
+            target_files, input_dir, output_dir, game_name
         )
         total = self.total_files
 
