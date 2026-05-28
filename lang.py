@@ -168,6 +168,7 @@ TEXT = {
         "unpack_success_log":     "[Done] 아카이브 추출 완료 - {success}개 파일 성공",
         "key_recovered_log":      "[*] 이미지 파일로부터 암호화 키 역추출 성공: {key}",
         "key_recovery_fail_log":  "[!] 이미지 파일로부터 키를 추출하는 데 실패했습니다.",
+        "output_folder_dropped":  "[i] 결과물 저장 폴더가 설정되었습니다: {path}",
     },
 
     "en": {
@@ -298,6 +299,7 @@ TEXT = {
         "unpack_success_log":     "[Done] Archive extraction completed - {success} files extracted",
         "key_recovered_log":      "[*] Encryption key recovered from image: {key}",
         "key_recovery_fail_log":  "[!] Failed to recover key from image.",
+        "output_folder_dropped":  "[i] Output folder set to: {path}",
     },
 
     "ja": {
@@ -428,6 +430,7 @@ TEXT = {
         "unpack_success_log":     "[Done] アーカイブ展開完了 - {success} 個のファイルを抽出",
         "key_recovered_log":      "[*] 画像ファイルからの暗号化キー逆抽出成功: {key}",
         "key_recovery_fail_log":  "[!] 画像ファイルからのキー抽出に失敗しました。",
+        "output_folder_dropped":  "[i] 保存先フォルダが設定されました: {path}",
     },
 
     "zh": {
@@ -558,6 +561,7 @@ TEXT = {
         "unpack_success_log":     "[Done] 归档解包完成 - 成功提取 {success} 个文件",
         "key_recovered_log":      "[*] 从图像文件成功恢复加密密钥: {key}",
         "key_recovery_fail_log":  "[!] 无法从图像中恢复密钥。",
+        "output_folder_dropped":  "[i] 输出文件夹已设置为: {path}",
     },
 }
 

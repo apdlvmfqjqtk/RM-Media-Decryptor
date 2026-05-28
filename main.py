@@ -326,7 +326,7 @@ class DecrypterApp:
         _apply_tk_dpi_scaling(self.root)
 
         # Pick a reasonable, non-resizable window size.
-        self.root.geometry("900x750")
+        self.root.geometry("750x750")
         self.root.resizable(False, False)
         self.root.configure(bg=COLORS["bg"])
 
@@ -2058,9 +2058,16 @@ class DecrypterApp:
                 
                 WNDPROC = ctypes.WINFUNCTYPE(LRESULT, ctypes.c_void_p, ctypes.c_uint, WPARAM, LPARAM)
                 
+                class POINT(ctypes.Structure):
+                    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
                 def wndproc(hwnd, msg, wparam, lparam):
                     if msg == 0x0233:  # WM_DROPFILES
                         hDrop = wparam
+                        pt = POINT()
+                        ctypes.windll.shell32.DragQueryPoint(hDrop, ctypes.byref(pt))
+                        ctypes.windll.user32.ClientToScreen(hwnd, ctypes.byref(pt))
+                        
                         num_files = ctypes.windll.shell32.DragQueryFileW(hDrop, 0xFFFFFFFF, None, 0)
                         paths = []
                         for idx in range(num_files):
@@ -2070,7 +2077,7 @@ class DecrypterApp:
                             paths.append(buf.value)
                         ctypes.windll.shell32.DragFinish(hDrop)
                         if paths:
-                            self.root.after(0, lambda: self._on_files_dropped(paths))
+                            self.root.after(0, lambda p=paths, px=pt.x, py=pt.y: self._on_files_dropped(p, px, py))
                         return 0
                     return CallWindowProc(self._old_wndproc, hwnd, msg, wparam, lparam)
                 
@@ -2079,11 +2086,35 @@ class DecrypterApp:
         except Exception as e:
             sys.stderr.write(f"[dnd] Failed to hook DragAcceptFiles: {e}\n")
 
-    def _on_files_dropped(self, paths: list[str]) -> None:
+    def _on_files_dropped(self, paths: list[str], mouse_x: int = -1, mouse_y: int = -1) -> None:
         if not paths:
             return
         path = paths[0]
-        
+
+        # Identify which widget received the drop
+        is_output_target = False
+        if mouse_x != -1 and mouse_y != -1:
+            try:
+                widget = self.root.winfo_containing(mouse_x, mouse_y)
+                w = widget
+                while w:
+                    if w in (self.entry_output, self.btn_output, getattr(self, "lbl_section_output", None)):
+                        is_output_target = True
+                        break
+                    parent_name = w.winfo_parent()
+                    if not parent_name:
+                        break
+                    w = w.nametowidget(parent_name)
+            except Exception:
+                pass
+
+        if is_output_target:
+            if os.path.isdir(path):
+                self.output_dir_var.set(path)
+                self.save_config()
+                self.log(self.t("output_folder_dropped", path=path))
+            return
+
         # Check if it's a legacy archive file
         ext = os.path.splitext(path)[1].lower()
         if ext in (".rgss3a", ".rgss2a", ".rgssad"):
