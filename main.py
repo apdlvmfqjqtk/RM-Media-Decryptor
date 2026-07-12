@@ -1761,8 +1761,6 @@ class DecrypterApp:
                             self._add_normalized_asset_names(val, used_names)
             except Exception:
                 pass
-            except Exception:
-                pass
 
         return used_names
 
