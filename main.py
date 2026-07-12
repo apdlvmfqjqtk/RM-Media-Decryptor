@@ -1689,15 +1689,42 @@ class DecrypterApp:
     def _collect_used_assets(self, input_dir: str) -> set[str]:
         used_names = set()
 
-        # 1. Find the data directory (MV/MZ layout check)
+        # 1. Find the data directory and plugins.js (MV/MZ layout check + parent search)
         data_dirs = []
-        for d in (input_dir, os.path.join(input_dir, "www")):
-            test_dir = os.path.join(d, "data")
-            if os.path.isdir(test_dir):
-                data_dirs.append(test_dir)
+        plugin_files = []
+
+        current = os.path.abspath(input_dir)
+        for _ in range(4):
+            # Check for data/
+            test_data = os.path.join(current, "data")
+            if os.path.isdir(test_data):
+                data_dirs.append(test_data)
+            test_www_data = os.path.join(current, "www", "data")
+            if os.path.isdir(test_www_data):
+                data_dirs.append(test_www_data)
+
+            # Check for plugins.js
+            test_plugins = os.path.join(current, "js", "plugins.js")
+            if os.path.isfile(test_plugins):
+                plugin_files.append(test_plugins)
+            test_www_plugins = os.path.join(current, "www", "js", "plugins.js")
+            if os.path.isfile(test_www_plugins):
+                plugin_files.append(test_www_plugins)
+
+            parent = os.path.dirname(current)
+            if parent == current:
+                break
+            current = parent
+
+        # De-duplicate
+        data_dirs = list(set(data_dirs))
+        plugin_files = list(set(plugin_files))
 
         # 2. Extract strings from JSON files
         import json
+        import re
+        str_re = re.compile(r'"([^"\\]*(?:\\.[^"\\]*)*)"|\'([^\'\\]*(?:\\.[^\'\\]*)*)\'')
+
         for data_dir in data_dirs:
             try:
                 for root, _, files in os.walk(data_dir):
@@ -1712,24 +1739,18 @@ class DecrypterApp:
                                     obj = json.loads(content)
                                     self._extract_strings_recursively(obj, used_names)
                                 except Exception:
-                                    # Fallback: regex scan for strings
-                                    import re
-                                    for m in re.finditer(r'"([^"\\]*(?:\\.[^"\\]*)*)"', content):
-                                        self._add_normalized_asset_names(m.group(1), used_names)
+                                    pass
+                                # Always run regex fallback to be bulletproof (captures both quotes)
+                                for m in str_re.finditer(content):
+                                    val = m.group(1) or m.group(2)
+                                    if val:
+                                        self._add_normalized_asset_names(val, used_names)
                             except Exception:
                                 pass
             except Exception:
                 pass
 
         # 3. Extract strings from js/plugins.js
-        plugin_files = []
-        for d in (input_dir, os.path.join(input_dir, "www")):
-            test_file = os.path.join(d, "js", "plugins.js")
-            if os.path.isfile(test_file):
-                plugin_files.append(test_file)
-
-        import re
-        str_re = re.compile(r'"([^"\\]*(?:\\.[^"\\]*)*)"|\'([^\'\\]*(?:\\.[^\'\\]*)*)\'')
         for pf in plugin_files:
             try:
                 with open(pf, "r", encoding="utf-8-sig") as f:
@@ -1738,6 +1759,8 @@ class DecrypterApp:
                         val = m.group(1) or m.group(2)
                         if val:
                             self._add_normalized_asset_names(val, used_names)
+            except Exception:
+                pass
             except Exception:
                 pass
 
