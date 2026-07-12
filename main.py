@@ -60,7 +60,7 @@ from rpg_core import (
 if sys.platform != "win32":
     raise SystemExit("This application currently supports Windows 10/11 only.")
 
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.3.0"
 
 
 # =====================================================================
@@ -364,6 +364,7 @@ class DecrypterApp:
         self.output_dir_var = tk.StringVar()
         self.auto_open_var  = tk.BooleanVar(value=False)
         self.no_key_png_var = tk.BooleanVar(value=False)
+        self.only_used_var  = tk.BooleanVar(value=False)
 
         # Load persisted (non-sensitive) settings BEFORE font/UI setup so a
         # saved language can affect the initial font choice and menu labels.
@@ -547,6 +548,7 @@ class DecrypterApp:
 
         self.auto_open_var.set(bool(data.get("auto_open", False)))
         self.no_key_png_var.set(bool(data.get("no_key_png", False)))
+        self.only_used_var.set(bool(data.get("only_used", False)))
 
     def save_config(self) -> bool:
         out_dir = self.output_dir_var.get()
@@ -560,6 +562,7 @@ class DecrypterApp:
             target_mode=self.current_target_mode,
             auto_open=self.auto_open_var.get(),
             no_key_png=self.no_key_png_var.get(),
+            only_used=self.only_used_var.get(),
         )
         if not ok:
             self.log(self.t("config_saved_fail", error=error))
@@ -662,6 +665,7 @@ class DecrypterApp:
             (getattr(self, "log_area", None), self._log_font),
             (getattr(self, "chk_auto_open", None), self._small_font),
             (getattr(self, "chk_no_key_png", None), self._small_font),
+            (getattr(self, "chk_only_used", None), self._small_font),
         ):
             if widget is not None:
                 try:
@@ -786,6 +790,17 @@ class DecrypterApp:
             command=self.save_config,
         )
         self.chk_no_key_png.pack(side="left", padx=(0, 20))
+
+        self.chk_only_used = tk.Checkbutton(
+            chk_frame, text="", variable=self.only_used_var,
+            bg=bg, fg=COLORS["fg"],
+            activebackground=bg, activeforeground=COLORS["fg"],
+            selectcolor=COLORS["entry_bg"],
+            highlightthickness=0, bd=0, anchor="w",
+            font=self._small_font,
+            command=self.save_config,
+        )
+        self.chk_only_used.pack(side="left", padx=(0, 20))
 
         # ── Run button ───────────────────────────────────────────────
         self.btn_run = self._make_button(outer, command=self.start_processing,
@@ -944,6 +959,7 @@ class DecrypterApp:
 
         self.chk_auto_open.configure(text=self.t("auto_open_label"))
         self.chk_no_key_png.configure(text=self.t("no_key_png_label"))
+        self.chk_only_used.configure(text=self.t("only_used_label"))
 
         # Run / Cancel button — keep current state's text.
         if not self.is_processing:
@@ -1351,6 +1367,7 @@ class DecrypterApp:
                 self.current_lang,
                 self.current_task_mode,
                 self.no_key_png_var.get(),
+                self.only_used_var.get(),
             ),
             daemon=True,
         )
@@ -1373,6 +1390,7 @@ class DecrypterApp:
         run_lang: str,
         task_mode: str = "decrypt",
         no_key_png: bool = False,
+        only_used: bool = False,
     ) -> None:
         """Worker entry point: scan, process, summarise based on task_mode."""
         if task_mode == "decrypt":
@@ -1390,7 +1408,7 @@ class DecrypterApp:
             else:
                 # decrypt mode
                 target_files, unsupported_count, plain_media_counts = self._scan_files(
-                    input_dir, target_mode, run_lang
+                    input_dir, target_mode, run_lang, only_used
                 )
 
                 if any(plain_media_counts.values()):
@@ -1616,7 +1634,7 @@ class DecrypterApp:
 
 
     def _scan_files(
-        self, input_dir: str, target_mode: str, run_lang: str
+        self, input_dir: str, target_mode: str, run_lang: str, only_used: bool = False
     ) -> tuple[list[tuple[str, str, str]], int, dict[str, int]]:
         self.log(self._t_lang(run_lang, "scan_log"))
 
@@ -1629,9 +1647,16 @@ class DecrypterApp:
         unsupported_count                        = 0
         plain_media_counts                       = {".png": 0, ".ogg": 0, ".m4a": 0}
 
+        used_assets = self._collect_used_assets(input_dir) if only_used else None
+
         for root_dir, _, files in os.walk(input_dir):
             if self._cancel_event.is_set():
                 return [], 0, {".png": 0, ".ogg": 0, ".m4a": 0}
+
+            # Check if this directory is img/system (case-insensitive)
+            rel_dir = os.path.relpath(root_dir, input_dir).replace('\\', '/').lower()
+            is_system_dir = "img/system" in rel_dir or rel_dir.endswith("img/system")
+
             for filename in files:
                 ext       = os.path.splitext(filename)[1].lower()
                 full_path = os.path.join(root_dir, filename)
@@ -1641,13 +1666,107 @@ class DecrypterApp:
                         continue
                     if os.path.islink(full_path):
                         continue
+
+                    # Filter by only_used if enabled
+                    if only_used and not is_system_dir:
+                        stem = os.path.splitext(filename)[0].lower()
+                        if stem not in used_assets:
+                            continue
+
                     target_files.append((root_dir, filename, ext))
                 elif ext in KNOWN_UNSUPPORTED_EXT:
                     unsupported_count += 1
                 elif ext in PLAIN_MEDIA_EXT and ext in plain_media_exts:
+                    if only_used and not is_system_dir:
+                        stem = os.path.splitext(filename)[0].lower()
+                        if stem not in used_assets:
+                            continue
                     plain_media_counts[ext] += 1
 
         return target_files, unsupported_count, plain_media_counts
+
+
+    def _collect_used_assets(self, input_dir: str) -> set[str]:
+        used_names = set()
+
+        # 1. Find the data directory (MV/MZ layout check)
+        data_dirs = []
+        for d in (input_dir, os.path.join(input_dir, "www")):
+            test_dir = os.path.join(d, "data")
+            if os.path.isdir(test_dir):
+                data_dirs.append(test_dir)
+
+        # 2. Extract strings from JSON files
+        import json
+        for data_dir in data_dirs:
+            try:
+                for root, _, files in os.walk(data_dir):
+                    for file in files:
+                        if file.lower().endswith(".json"):
+                            file_path = os.path.join(root, file)
+                            try:
+                                with open(file_path, "r", encoding="utf-8-sig") as f:
+                                    content = f.read()
+                                # Attempt JSON load first
+                                try:
+                                    obj = json.loads(content)
+                                    self._extract_strings_recursively(obj, used_names)
+                                except Exception:
+                                    # Fallback: regex scan for strings
+                                    import re
+                                    for m in re.finditer(r'"([^"\\]*(?:\\.[^"\\]*)*)"', content):
+                                        self._add_normalized_asset_names(m.group(1), used_names)
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+
+        # 3. Extract strings from js/plugins.js
+        plugin_files = []
+        for d in (input_dir, os.path.join(input_dir, "www")):
+            test_file = os.path.join(d, "js", "plugins.js")
+            if os.path.isfile(test_file):
+                plugin_files.append(test_file)
+
+        import re
+        str_re = re.compile(r'"([^"\\]*(?:\\.[^"\\]*)*)"|\'([^\'\\]*(?:\\.[^\'\\]*)*)\'')
+        for pf in plugin_files:
+            try:
+                with open(pf, "r", encoding="utf-8-sig") as f:
+                    content = f.read()
+                    for m in str_re.finditer(content):
+                        val = m.group(1) or m.group(2)
+                        if val:
+                            self._add_normalized_asset_names(val, used_names)
+            except Exception:
+                pass
+
+        return used_names
+
+    def _extract_strings_recursively(self, obj, dest: set[str]) -> None:
+        if isinstance(obj, str):
+            self._add_normalized_asset_names(obj, dest)
+        elif isinstance(obj, list):
+            for item in obj:
+                self._extract_strings_recursively(item, dest)
+        elif isinstance(obj, dict):
+            for v in obj.values():
+                self._extract_strings_recursively(v, dest)
+
+    def _add_normalized_asset_names(self, val: str, dest: set[str]) -> None:
+        val = val.strip().replace('\\', '/').lower()
+        if not val:
+            return
+        dest.add(val)
+        # Add basename
+        base = os.path.basename(val)
+        dest.add(base)
+        # Add basename without extension
+        stem, _ = os.path.splitext(base)
+        dest.add(stem)
+        # Add path without extension
+        path_no_ext, _ = os.path.splitext(val)
+        dest.add(path_no_ext)
 
 
     @staticmethod

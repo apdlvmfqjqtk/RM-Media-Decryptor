@@ -62,6 +62,7 @@ def _sanitize(data: dict) -> dict:
         "target_mode":  target_mode if target_mode in VALID_TARGET_MODES else "both",
         "auto_open":    bool(data.get("auto_open", False)),
         "no_key_png":   bool(data.get("no_key_png", False)),
+        "only_used":    bool(data.get("only_used", False)),
     }
 
 
@@ -123,6 +124,7 @@ def save_config_data(
     target_mode:  str  = "both",
     auto_open:    bool = False,
     no_key_png:   bool = False,
+    only_used:    bool = False,
 ) -> tuple[bool, Exception | None]:
     """Persist only non-sensitive UI settings.
 
@@ -136,6 +138,7 @@ def save_config_data(
             "target_mode": target_mode,
             "auto_open":   auto_open,
             "no_key_png":  no_key_png,
+            "only_used":   only_used,
         }
     )
 
